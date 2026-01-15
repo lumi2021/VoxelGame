@@ -1,0 +1,28 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VoxelGame", "VoxelGame\VoxelGame.csproj", "{EB1A1608-D766-4C0B-8109-A8DE22FEDCF8}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VoxelGame.Core", "VoxelGame.Core\VoxelGame.Core.csproj", "{AA947A52-33FB-4ECE-9765-39A97212BD46}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VoxelGame.System.VkImpl", "VoxelGame.System.VkImpl\VoxelGame.System.VkImpl.csproj", "{1FA6ADC2-FC26-4B90-A9DF-C73677483FF2}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{EB1A1608-D766-4C0B-8109-A8DE22FEDCF8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{EB1A1608-D766-4C0B-8109-A8DE22FEDCF8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{EB1A1608-D766-4C0B-8109-A8DE22FEDCF8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{EB1A1608-D766-4C0B-8109-A8DE22FEDCF8}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AA947A52-33FB-4ECE-9765-39A97212BD46}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AA947A52-33FB-4ECE-9765-39A97212BD46}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AA947A52-33FB-4ECE-9765-39A97212BD46}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AA947A52-33FB-4ECE-9765-39A97212BD46}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1FA6ADC2-FC26-4B90-A9DF-C73677483FF2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1FA6ADC2-FC26-4B90-A9DF-C73677483FF2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1FA6ADC2-FC26-4B90-A9DF-C73677483FF2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1FA6ADC2-FC26-4B90-A9DF-C73677483FF2}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
