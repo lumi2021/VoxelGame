@@ -1,4 +1,12 @@
-﻿using VoxelGame.Engine;
+﻿using VoxelGame;
+using VoxelGame.Core;
+using VoxelGame.Engine;
 
-Window.Init();
-Window.Run();
+var game = new Game();
+var win = new VkWindow();
+var graphs = new VkGraphics();
+
+Singletons.Init(game, graphs, win);
+
+win.Init();
+win.Run();

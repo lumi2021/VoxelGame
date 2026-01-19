@@ -1,17 +1,22 @@
 using Silk.NET.Maths;
 using Silk.NET.Vulkan;
 using Silk.NET.Windowing;
+using VoxelGame.Core;
+using VoxelGame.Core.Math;
+using IWindow = Silk.NET.Windowing.IWindow;
 using SilkWin = Silk.NET.Windowing.Window;
+using IWindowCore = VoxelGame.Core.IWindow;
 
 namespace VoxelGame.Engine;
 
-public static class Window
+public class VkWindow : IWindowCore
 {
     private static IWindow _window = null!;
+
+    public VecU2 Position => new ((uint)_window.Position.X, (uint)_window.Position.Y);
+    public VecU2 Size => new((uint)_window.FramebufferSize.X, (uint)_window.FramebufferSize.Y);
     
-    public static Vector2D<uint> FramebufferSize => new ((uint)_window.FramebufferSize.X, (uint)_window.FramebufferSize.Y);
-    
-    public static void Init()
+    public void Init()
     {
         var options = WindowOptions.DefaultVulkan with
         {
@@ -21,16 +26,17 @@ public static class Window
 
         _window = SilkWin.Create(options);
 
-        _window.Load += World.Init;
-        _window.Update += World.Update;
-        _window.Render += World.Draw;
-        
+        _window.Load += Singletons.Game.Init;
+        _window.Update += Singletons.Game.Update;
+        _window.Render += Singletons.Game.Draw;
+
         _window.Initialize();
 
         if (_window.VkSurface is null) throw new Exception("Windowing platform doesn't support Vulkan.");
     }
-    public static void Run() => _window.Run();
-    public static void Dispose() => _window.Dispose();
+    public void Run() => _window.Run();
+    public void Dispose() => _window.Dispose();
+    
     
     internal static unsafe SurfaceKHR VkCreateSurface(Instance instance)
         => _window!.VkSurface!.Create<AllocationCallbacks>(instance.ToHandle(), null).ToSurface();
