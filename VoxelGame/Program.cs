@@ -2,11 +2,12 @@
 using VoxelGame.Core;
 using VoxelGame.Engine;
 
-var game = new Game();
-var win = new VkWindow();
-var graphs = new VkGraphics();
+Singletons.Init(
+    new Game(),
+    new VkGraphics(),
+    new VkWindow(),
+    new VkInput());
 
-Singletons.Init(game, graphs, win);
-
+var win = (VkWindow)Singletons.Window;
 win.Init();
 win.Run();

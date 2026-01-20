@@ -334,7 +334,7 @@ internal static unsafe class Vulkan
     {
         if (!Vk.TryGetInstanceExtension<KhrSurface>(_instance, out _khrSurface))
             throw new NotSupportedException("KHR_surface extension not found.");
-        _surface = VkWindow.VkCreateSurface(_instance);
+        _surface = ((VkWindow)Singletons.Window).VkCreateSurface(_instance);
     }
 
     private static void PickPhysicalDevice()
@@ -904,7 +904,7 @@ internal static unsafe class Vulkan
     {
         HashSet<string> extList = [];
         
-        var glfwExtensions = VkWindow.VkGetRequiredExtensions(out var glfwExtensionCount);
+        var glfwExtensions = ((VkWindow)Singletons.Window).VkGetRequiredExtensions(out var glfwExtensionCount);
         var glfwExtensionsMarshalled = SilkMarshal.PtrToStringArray((nint)glfwExtensions, (int)glfwExtensionCount);
         foreach (var i in glfwExtensionsMarshalled) extList.Add(i);
 

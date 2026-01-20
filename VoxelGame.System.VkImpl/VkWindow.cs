@@ -11,10 +11,10 @@ namespace VoxelGame.Engine;
 
 public class VkWindow : IWindowCore
 {
-    private static IWindow _window = null!;
+    internal IWindow Window = null!;
 
-    public VecU2 Position => new ((uint)_window.Position.X, (uint)_window.Position.Y);
-    public VecU2 Size => new((uint)_window.FramebufferSize.X, (uint)_window.FramebufferSize.Y);
+    public VecU2 Position => new ((uint)Window.Position.X, (uint)Window.Position.Y);
+    public VecU2 Size => new((uint)Window.FramebufferSize.X, (uint)Window.FramebufferSize.Y);
     
     public void Init()
     {
@@ -22,25 +22,39 @@ public class VkWindow : IWindowCore
         {
             Size = new Vector2D<int>(800, 600),
             Title = "VoxelGame",
+            ShouldSwapAutomatically = false,
         };
 
-        _window = SilkWin.Create(options);
+        Window = SilkWin.Create(options);
 
-        _window.Load += Singletons.Game.Init;
-        _window.Update += Singletons.Game.Update;
-        _window.Render += Singletons.Game.Draw;
+        Window.Load += Singletons.Game.Init;
+        Window.Update += Singletons.Game.Update;
+        Window.Render += Singletons.Game.Draw;
 
-        _window.Initialize();
-      
-        if (_window.VkSurface is null) throw new Exception("Windowing platform doesn't support Vulkan.");
+        Window.Initialize();
+        ((VkInput)Singletons.Input).Initialize();
+        
+        if (Window.VkSurface is null) throw new Exception("Windowing platform doesn't support Vulkan.");
     }
-    
-    public void Run() => _window.Run();
-    public void Dispose() => _window.Dispose();
-    
-    internal static unsafe SurfaceKHR VkCreateSurface(Instance instance)
-        => _window!.VkSurface!.Create<AllocationCallbacks>(instance.ToHandle(), null).ToSurface();
 
-    internal static unsafe byte** VkGetRequiredExtensions(out uint extensionCount)
-        => _window.VkSurface!.GetRequiredExtensions(out extensionCount);
+    public void Run()
+    {
+        Window.Initialize();
+        while (true)
+        {
+            ((VkInput)Singletons.Input).Update();
+            Window.DoEvents(); if (Window.IsClosing) break;
+            
+            Window.DoRender();
+            Window.DoUpdate();
+        }
+        Window.Reset();
+    }
+    public void Dispose() => Window.Dispose();
+    
+    internal unsafe SurfaceKHR VkCreateSurface(Instance instance)
+        => Window!.VkSurface!.Create<AllocationCallbacks>(instance.ToHandle(), null).ToSurface();
+
+    internal unsafe byte** VkGetRequiredExtensions(out uint extensionCount)
+        => Window.VkSurface!.GetRequiredExtensions(out extensionCount);
 }

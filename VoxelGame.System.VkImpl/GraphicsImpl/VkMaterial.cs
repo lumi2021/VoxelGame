@@ -109,7 +109,7 @@ public unsafe class VkMaterial : IMaterial, IDisposable
             RasterizerDiscardEnable = false,
             PolygonMode = PolygonMode.Fill,
             LineWidth = 1,
-            CullMode = CullModeFlags.None,
+            CullMode = CullModeFlags.BackBit,
             FrontFace = FrontFace.CounterClockwise,
             DepthBiasEnable = false,
         };
