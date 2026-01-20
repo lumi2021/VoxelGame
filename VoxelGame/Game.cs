@@ -15,6 +15,9 @@ public class Game : IGame
     private IIndexBuffer _indexBuffer;
     private IVertexBuffer<Vec3> _vertexPositionBuffer;
     private IVertexBuffer<Vec2> _vertexCoordBuffer;
+
+    private double _time;
+    private Matrix4x4 _modelMatrix;
     
     public void Init()
     {
@@ -35,9 +38,30 @@ public class Game : IGame
         _vertexPositionBuffer = Singletons.Graphics.GenerateVertexBuffer<Vec3>();
         _vertexCoordBuffer = Singletons.Graphics.GenerateVertexBuffer<Vec2>();
 
-        ushort[] indices = [ 0, 1, 2, 0, 2, 3 ];
-        Vec3[] vertices = [ new(0, 0, 0), new(1, 0, 0), new(1, 1, 0), new(0, 1, 0) ];
-        Vec2[] uvs = [ new(0, 0), new(1, 0), new(1, 1), new(0, 1) ];
+        ushort[] indices = [
+            0, 1, 2,  0, 2, 3,
+            4, 5, 6,  4, 6, 7,
+            8, 9, 10, 8, 10, 11,
+            12, 13, 14, 12, 14, 15,
+            16, 17, 18, 16, 18, 19,
+            20, 21, 22, 20, 22, 23
+        ];
+        Vec3[] vertices = [
+            new(0, 0, 0), new(1, 0, 0), new(1, 1, 0), new(0, 1, 0),
+            new(0, 0, 0), new(0, 0, 1), new(0, 1, 1), new(0, 1, 0),
+            new(1, 0, 0), new(1, 0, 1), new(1, 1, 1), new(1, 1, 0),
+            new(0, 0, 1), new(1, 0, 1), new(1, 1, 1), new(0, 1, 1),
+            new(0, 0, 0), new(0, 0, 1), new(1, 0, 1), new(1, 0, 0),
+            new(0, 1, 0), new(0, 1, 1), new(1, 1, 1), new(1, 1, 0),
+        ];
+        Vec2[] uvs = [
+            new(0, 0), new(1, 0), new(1, 1), new(0, 1),
+            new(0, 0), new(1, 0), new(1, 1), new(0, 1),
+            new(0, 0), new(1, 0), new(1, 1), new(0, 1),
+            new(0, 0), new(1, 0), new(1, 1), new(0, 1),
+            new(0, 0), new(1, 0), new(1, 1), new(0, 1),
+            new(0, 0), new(1, 0), new(1, 1), new(0, 1),
+        ];
         
         _indexBuffer.Fetch(indices);
         _vertexPositionBuffer.Fetch(vertices);
@@ -51,21 +75,23 @@ public class Game : IGame
     
     public void Update(double delta)
     {
-        
+        _time += delta;
+        _modelMatrix = Matrix4x4.CreateRotationY((float)_time, new Vector3(.5f, .5f, .5f))
+                       * Matrix4x4.CreateRotationX(MathF.PI / 180 * 45, new Vector3(.5f, .5f, .5f))
+                       * Matrix4x4.CreateTranslation(-.5f, -.5f, 2);
     }
 
     public void Draw(double delta)
     {
         Singletons.Graphics.BeginRenderingFrame();
         
-        var projection = Matrix4x4.CreatePerspectiveFieldOfView(MathF.PI / 180 * 90f, 800/600f, 0.0001f, 100000f);
+        var projection = Matrix4x4.CreatePerspectiveFieldOfView(MathF.PI / 180 * 90, 800/600f, 0.0001f, 10f);
         var view = Matrix4x4.CreateLookTo(Vector3.Zero, Vector3.UnitZ,  Vector3.UnitY);
-        var model = Matrix4x4.CreateTranslation(0, 0, 5);
         
         Singletons.Graphics.BindMaterial(_material);
         Singletons.Graphics.BindMesh(_indexBuffer, [_vertexPositionBuffer, _vertexCoordBuffer]);
         Singletons.Graphics.BindMat4(0, projection);
-        Singletons.Graphics.BindMat4(1, model);
+        Singletons.Graphics.BindMat4(1, _modelMatrix);
         Singletons.Graphics.BindMat4(2, view);
         Singletons.Graphics.Draw();
         

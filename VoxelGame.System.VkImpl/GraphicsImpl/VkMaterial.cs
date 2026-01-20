@@ -126,7 +126,7 @@ public unsafe class VkMaterial : IMaterial, IDisposable
             ColorWriteMask = ColorComponentFlags.RBit | ColorComponentFlags.GBit | ColorComponentFlags.BBit | ColorComponentFlags.ABit,
             BlendEnable = false,
         };
-
+        
         PipelineColorBlendStateCreateInfo colorBlending = new()
         {
             SType = StructureType.PipelineColorBlendStateCreateInfo,
@@ -135,11 +135,21 @@ public unsafe class VkMaterial : IMaterial, IDisposable
             AttachmentCount = 1,
             PAttachments = &colorBlendAttachment,
         };
-
+        
         colorBlending.BlendConstants[0] = 0;
         colorBlending.BlendConstants[1] = 0;
         colorBlending.BlendConstants[2] = 0;
         colorBlending.BlendConstants[3] = 0;
+
+        PipelineDepthStencilStateCreateInfo depthStencil = new()
+        {
+            SType = StructureType.PipelineDepthStencilStateCreateInfo,
+            DepthTestEnable = true,
+            DepthWriteEnable = true,
+            DepthCompareOp = CompareOp.LessOrEqual,
+            DepthBoundsTestEnable = false,
+            StencilTestEnable = false
+        };
 
         var constantRanges = stackalloc[]
         {
@@ -188,6 +198,7 @@ public unsafe class VkMaterial : IMaterial, IDisposable
             PRasterizationState = &rasterizer,
             PMultisampleState = &multisampling,
             PColorBlendState = &colorBlending,
+            PDepthStencilState = &depthStencil,
             PDynamicState = &dyn,
             Layout = _pipelineLayout,
             RenderPass = Vulkan.DefaultRenderPass,

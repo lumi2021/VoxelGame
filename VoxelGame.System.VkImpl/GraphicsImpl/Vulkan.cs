@@ -49,6 +49,10 @@ internal static unsafe class Vulkan
     private static ImageView[]? _swapChainImageViews;
     private static Framebuffer[]? _swapChainFramebuffers;
 
+    private static Image _depthImage;
+    private static DeviceMemory _depthImageMemory;
+    private static ImageView _depthImageView;
+    
     private static CommandPool _commandPool;
     private static CommandBuffer[]? _commandBuffers;
 
@@ -73,6 +77,7 @@ internal static unsafe class Vulkan
         CreateSwapChain();
         CreateImageViews();
         CreateRenderPass();
+        CreateDepthResources();
         CreateFramebuffers();
         CreateCommandPool();
         CreateCommandBuffers();
@@ -125,9 +130,12 @@ internal static unsafe class Vulkan
         CommandBufferBeginInfo beginInfo = new() { SType = StructureType.CommandBufferBeginInfo };
         if (Vk.BeginCommandBuffer(_commandBuffers![_currentFrame], in beginInfo) != Result.Success)
             throw new Exception("failed to begin recording command buffer!");
-        
-        ClearValue clearColor = new()
-            { Color = new ClearColorValue { Float32_0 = 28/256f, Float32_1 = 150/256f, Float32_2 = 197/256f, Float32_3 = 1f} };
+
+        var clearValue = stackalloc[]
+        {
+            new ClearValue(color: new ClearColorValue { Float32_0 = 28 / 256f, Float32_1 = 150 / 256f, Float32_2 = 197 / 256f, Float32_3 = 1f }),
+            new ClearValue(depthStencil: new ClearDepthStencilValue(depth: 1f)),
+        };
         RenderPassBeginInfo renderPassInfo = new()
         {
             SType = StructureType.RenderPassBeginInfo,
@@ -137,8 +145,8 @@ internal static unsafe class Vulkan
                 Offset = { X = 0, Y = 0 },
                 Extent = SwapChainExtent,
             },
-            ClearValueCount = 1,
-            PClearValues = &clearColor,
+            ClearValueCount = 2,
+            PClearValues = clearValue,
         };
         Vk.CmdBeginRenderPass(CurrentCommandBuffer, &renderPassInfo, SubpassContents.Inline);
 
@@ -515,6 +523,18 @@ internal static unsafe class Vulkan
             InitialLayout = ImageLayout.Undefined,
             FinalLayout = ImageLayout.PresentSrcKhr,
         };
+        
+        AttachmentDescription depthAttachment = new()
+        {
+            Format = Format.D32Sfloat,
+            Samples = SampleCountFlags.Count1Bit,
+            LoadOp = AttachmentLoadOp.Clear,
+            StoreOp = AttachmentStoreOp.DontCare,
+            StencilLoadOp = AttachmentLoadOp.DontCare,
+            StencilStoreOp = AttachmentStoreOp.DontCare,
+            InitialLayout = ImageLayout.Undefined,
+            FinalLayout = ImageLayout.DepthStencilAttachmentOptimal
+        };
 
         AttachmentReference colorAttachmentRef = new()
         {
@@ -522,11 +542,19 @@ internal static unsafe class Vulkan
             Layout = ImageLayout.ColorAttachmentOptimal,
         };
 
+        AttachmentReference depthAttachmentRef = new()
+        {
+            Attachment = 1,
+            Layout = ImageLayout.DepthStencilAttachmentOptimal
+        };
+
+        
         SubpassDescription subpass = new()
         {
             PipelineBindPoint = PipelineBindPoint.Graphics,
             ColorAttachmentCount = 1,
             PColorAttachments = &colorAttachmentRef,
+            PDepthStencilAttachment = &depthAttachmentRef,
         };
 
         SubpassDependency dependency = new()
@@ -539,11 +567,12 @@ internal static unsafe class Vulkan
             DstAccessMask = AccessFlags.ColorAttachmentWriteBit
         };
 
+        var attachments = stackalloc[] { colorAttachment, depthAttachment };
         RenderPassCreateInfo renderPassInfo = new()
         {
             SType = StructureType.RenderPassCreateInfo,
-            AttachmentCount = 1,
-            PAttachments = &colorAttachment,
+            AttachmentCount = 2,
+            PAttachments = attachments,
             SubpassCount = 1,
             PSubpasses = &subpass,
             DependencyCount = 1,
@@ -553,21 +582,98 @@ internal static unsafe class Vulkan
         if (Vk.CreateRenderPass(Device, in renderPassInfo, null, out DefaultRenderPass) != Result.Success)
             throw new Exception("failed to create render pass!");
     }
+    
+    private static void CreateDepthResources()
+    {
+        const Format depthFormat = Format.D32Sfloat;
+        CreateImage(
+            SwapChainExtent.Width, 
+            SwapChainExtent.Height, 
+            depthFormat,
+            ImageTiling.Optimal,
+            ImageUsageFlags.DepthStencilAttachmentBit,
+            MemoryPropertyFlags.DeviceLocalBit,
+            out _depthImage,
+            out _depthImageMemory
+        );
+        _depthImageView = CreateImageView(_depthImage, depthFormat, ImageAspectFlags.DepthBit);
+    }
 
+    private static void CreateImage(
+        uint width, uint height, Format format, ImageTiling tiling, ImageUsageFlags usage,
+        MemoryPropertyFlags properties, out Image image, out DeviceMemory imageMemory)
+    {
+        ImageCreateInfo imageInfo = new()
+        {
+            SType = StructureType.ImageCreateInfo,
+            ImageType = ImageType.Type2D,
+            Extent = new Extent3D { Width = width, Height = height, Depth = 1 },
+            MipLevels = 1,
+            ArrayLayers = 1,
+            Format = format,
+            Tiling = tiling,
+            InitialLayout = ImageLayout.Undefined,
+            Usage = usage,
+            Samples = SampleCountFlags.Count1Bit,
+            SharingMode = SharingMode.Exclusive
+        };
+
+        if (Vk.CreateImage(Device, in imageInfo, null, out image) != Result.Success)
+            throw new Exception("failed to create depth image!");
+
+        Vk.GetImageMemoryRequirements(Device, image, out var memRequirements);
+
+        MemoryAllocateInfo allocInfo = new()
+        {
+            SType = StructureType.MemoryAllocateInfo,
+            AllocationSize = memRequirements.Size,
+            MemoryTypeIndex = FindMemoryType(memRequirements.MemoryTypeBits, properties)
+        };
+
+        if (Vk.AllocateMemory(Device, in allocInfo, null, out imageMemory) != Result.Success)
+            throw new Exception("failed to allocate depth image memory!");
+
+        Vk.BindImageMemory(Device, image, imageMemory, 0);
+    }
+
+    private static ImageView CreateImageView(Image image, Format format, ImageAspectFlags aspectFlags)
+    {
+        ImageViewCreateInfo viewInfo = new()
+        {
+            SType = StructureType.ImageViewCreateInfo,
+            Image = image,
+            ViewType = ImageViewType.Type2D,
+            Format = format,
+            SubresourceRange = new ImageSubresourceRange
+            {
+                AspectMask = aspectFlags,
+                BaseMipLevel = 0,
+                LevelCount = 1,
+                BaseArrayLayer = 0,
+                LayerCount = 1
+            }
+        };
+
+        if (Vk.CreateImageView(Device, in viewInfo, null, out var imageView) != Result.Success)
+            throw new Exception("failed to create image view!");
+
+        return imageView;
+    }
+    
     private static void CreateFramebuffers()
     {
         _swapChainFramebuffers = new Framebuffer[_swapChainImageViews!.Length];
 
         for (var i = 0; i < _swapChainImageViews.Length; i++)
         {
-            var attachment = _swapChainImageViews[i];
+            var attachment = stackalloc[] {_swapChainImageViews[i], _depthImageView };
 
             FramebufferCreateInfo framebufferInfo = new()
             {
                 SType = StructureType.FramebufferCreateInfo,
                 RenderPass = DefaultRenderPass,
-                AttachmentCount = 1,
-                PAttachments = &attachment,
+                AttachmentCount = 2,
+                PAttachments = attachment,
                 Width = SwapChainExtent.Width,
                 Height = SwapChainExtent.Height,
                 Layers = 1,
