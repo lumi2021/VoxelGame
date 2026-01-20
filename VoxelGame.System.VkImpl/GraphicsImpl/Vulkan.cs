@@ -6,6 +6,7 @@ using Silk.NET.Vulkan;
 using Silk.NET.Vulkan.Extensions.EXT;
 using Silk.NET.Vulkan.Extensions.KHR;
 using VoxelGame.Core;
+using Queue = Silk.NET.Vulkan.Queue;
 using Semaphore = Silk.NET.Vulkan.Semaphore;
 
 namespace VoxelGame.Engine.GraphicsImpl;
@@ -83,28 +84,28 @@ internal static unsafe class Vulkan
         
         for (var i = 0; i < MaxFramesInFlight; i++)
         {
-            Vk!.DestroySemaphore(Device, _renderFinishedSemaphores![i], null);
-            Vk!.DestroySemaphore(Device, _imageAvailableSemaphores![i], null);
-            Vk!.DestroyFence(Device, _inFlightFences![i], null);
+            Vk.DestroySemaphore(Device, _renderFinishedSemaphores![i], null);
+            Vk.DestroySemaphore(Device, _imageAvailableSemaphores![i], null);
+            Vk.DestroyFence(Device, _inFlightFences![i], null);
         }
 
-        Vk!.DestroyCommandPool(Device, _commandPool, null);
-
-        foreach (var framebuffer in _swapChainFramebuffers!)
-            Vk!.DestroyFramebuffer(Device, framebuffer, null);
+        Vk.DestroyCommandPool(Device, _commandPool, null);
         
-        foreach (var imageView in _swapChainImageViews!)
-            Vk!.DestroyImageView(Device, imageView, null);
+        foreach (var framebuffer in _swapChainFramebuffers!) Vk.DestroyFramebuffer(Device, framebuffer, null);
+        
+        foreach (var imageView in _swapChainImageViews!) Vk.DestroyImageView(Device, imageView, null);
 
+        Vk.DestroyRenderPass(Device, DefaultRenderPass, null);
+        
         _khrSwapChain!.DestroySwapchain(Device, _swapChain, null);
 
-        Vk!.DestroyDevice(Device, null);
+        Vk.DestroyDevice(Device, null);
 
         if (EnableValidationLayers) _debugUtils!.DestroyDebugUtilsMessenger(_instance, _debugMessenger, null);
 
         _khrSurface!.DestroySurface(_instance, _surface, null);
-        Vk!.DestroyInstance(_instance, null);
-        Vk!.Dispose();
+        Vk.DestroyInstance(_instance, null);
+        Vk.Dispose();
     }
 
     internal static void BeginRenderingFrame()
@@ -140,6 +141,12 @@ internal static unsafe class Vulkan
             PClearValues = &clearColor,
         };
         Vk.CmdBeginRenderPass(CurrentCommandBuffer, &renderPassInfo, SubpassContents.Inline);
+
+        var vp = new Viewport(0f, 0f, SwapChainExtent.Width, SwapChainExtent.Height, 0f, 1f);
+        var sc = new Rect2D(new Offset2D(0, 0), SwapChainExtent);
+
+        Vk.CmdSetViewport(CurrentCommandBuffer, 0, 1, &vp);
+        Vk.CmdSetScissor(CurrentCommandBuffer, 0, 1, &sc);
     }
     internal static void EndRenderingFrame()
     {
@@ -147,49 +154,44 @@ internal static unsafe class Vulkan
         if (Vk.EndCommandBuffer(_commandBuffers![_currentFrame]) != Result.Success)
             throw new Exception("failed to record command buffer!");
 
-        var waitSemaphores = stackalloc[] { _imageAvailableSemaphores![_currentFrame] };
         var waitStages = stackalloc[] { PipelineStageFlags.ColorAttachmentOutputBit };
-
-        var buffer = _commandBuffers![_currentFrame];
-        SubmitInfo submitInfo = new() {
+        var commandBuffer = stackalloc[] { _commandBuffers![_currentFrame] };
+        var waitSemaphores = stackalloc[] { _imageAvailableSemaphores![_currentFrame] };
+        var signalSemaphores = stackalloc[] { _renderFinishedSemaphores![_imageIndex] };
+        
+        var submitInfo = new SubmitInfo
+        {
             SType = StructureType.SubmitInfo,
             WaitSemaphoreCount = 1,
             PWaitSemaphores = waitSemaphores,
             PWaitDstStageMask = waitStages,
 
             CommandBufferCount = 1,
-            PCommandBuffers = &buffer
-        };
+            PCommandBuffers = commandBuffer,
 
-        var signalSemaphores = stackalloc[] { _renderFinishedSemaphores![_currentFrame] };
-        submitInfo = submitInfo with
-        {
             SignalSemaphoreCount = 1,
             PSignalSemaphores = signalSemaphores,
         };
-
-        Vk.ResetFences(Device, 1, in _inFlightFences![_currentFrame]);
 
         if (Vk.QueueSubmit(_graphicsQueue, 1, in submitInfo, _inFlightFences![_currentFrame]) != Result.Success)
             throw new Exception("failed to submit draw command buffer!");
 
         var swapChains = stackalloc[] { _swapChain };
-        fixed (uint* imgidx = &_imageIndex)
+        var imageIdx = stackalloc[] { _imageIndex };
+        
+        PresentInfoKHR presentInfo = new()
         {
-            PresentInfoKHR presentInfo = new()
-            {
-                SType = StructureType.PresentInfoKhr,
+            SType = StructureType.PresentInfoKhr,
 
-                WaitSemaphoreCount = 1,
-                PWaitSemaphores = signalSemaphores,
+            WaitSemaphoreCount = 1,
+            PWaitSemaphores = signalSemaphores,
 
-                SwapchainCount = 1,
-                PSwapchains = swapChains,
+            SwapchainCount = 1,
+            PSwapchains = swapChains,
 
-                PImageIndices = imgidx
-            };
-            _khrSwapChain!.QueuePresent(_presentQueue, in presentInfo);
-        }
+            PImageIndices = imageIdx
+        };
+        _khrSwapChain!.QueuePresent(_presentQueue, in presentInfo);
         _currentFrame = (_currentFrame + 1) % MaxFramesInFlight;
     }
     
@@ -253,11 +255,11 @@ internal static unsafe class Vulkan
         ApplicationInfo appInfo = new()
         {
             SType = StructureType.ApplicationInfo,
-            PApplicationName = (byte*)Marshal.StringToHGlobalAnsi("Hello Triangle"),
+            PApplicationName = (byte*)Marshal.StringToHGlobalAnsi("Voxel game"),
             ApplicationVersion = new Version32(1, 0, 0),
             PEngineName = (byte*)Marshal.StringToHGlobalAnsi("No Engine"),
             EngineVersion = new Version32(1, 0, 0),
-            ApiVersion = Vk.Version12
+            ApiVersion = Vk.Version10
         };
 
         InstanceCreateInfo createInfo = new()
@@ -286,18 +288,13 @@ internal static unsafe class Vulkan
         }
 
         if (Vk.CreateInstance(in createInfo, null, out _instance) != Result.Success)
-        {
             throw new Exception("failed to create instance!");
-        }
 
         Marshal.FreeHGlobal((IntPtr)appInfo.PApplicationName);
         Marshal.FreeHGlobal((IntPtr)appInfo.PEngineName);
         SilkMarshal.Free((nint)createInfo.PpEnabledExtensionNames);
 
-        if (EnableValidationLayers)
-        {
-            SilkMarshal.Free((nint)createInfo.PpEnabledLayerNames);
-        }
+        if (EnableValidationLayers) SilkMarshal.Free((nint)createInfo.PpEnabledLayerNames);
     }
 
     private static void PopulateDebugMessengerCreateInfo(ref DebugUtilsMessengerCreateInfoEXT createInfo)
@@ -327,7 +324,7 @@ internal static unsafe class Vulkan
 
     private static void CreateSurface()
     {
-        if (!Vk!.TryGetInstanceExtension<KhrSurface>(_instance, out _khrSurface))
+        if (!Vk.TryGetInstanceExtension<KhrSurface>(_instance, out _khrSurface))
             throw new NotSupportedException("KHR_surface extension not found.");
         _surface = VkWindow.VkCreateSurface(_instance);
     }
@@ -553,7 +550,7 @@ internal static unsafe class Vulkan
             PDependencies = &dependency,
         };
 
-        if (Vk!.CreateRenderPass(Device, in renderPassInfo, null, out DefaultRenderPass) != Result.Success)
+        if (Vk.CreateRenderPass(Device, in renderPassInfo, null, out DefaultRenderPass) != Result.Success)
             throw new Exception("failed to create render pass!");
     }
 
@@ -618,7 +615,7 @@ internal static unsafe class Vulkan
     private static void CreateSyncObjects()
     {
         _imageAvailableSemaphores = new Semaphore[MaxFramesInFlight];
-        _renderFinishedSemaphores = new Semaphore[MaxFramesInFlight];
+        _renderFinishedSemaphores = new Semaphore[_swapChainImages!.Length];
         _inFlightFences = new Fence[MaxFramesInFlight];
         _imagesInFlight = new Fence[_swapChainImages!.Length];
 
@@ -635,12 +632,17 @@ internal static unsafe class Vulkan
 
         for (var i = 0; i < MaxFramesInFlight; i++)
         {
-            if (Vk!.CreateSemaphore(Device, in semaphoreInfo, null, out _imageAvailableSemaphores[i]) != Result.Success ||
-                Vk!.CreateSemaphore(Device, in semaphoreInfo, null, out _renderFinishedSemaphores[i]) != Result.Success ||
-                Vk!.CreateFence(Device, in fenceInfo, null, out _inFlightFences[i]) != Result.Success)
+            if (Vk.CreateSemaphore(Device, in semaphoreInfo, null, out _imageAvailableSemaphores[i]) != Result.Success ||
+                Vk.CreateFence(Device, in fenceInfo, null, out _inFlightFences[i]) != Result.Success)
             {
                 throw new Exception("failed to create synchronization objects for a frame!");
             }
+        }
+        
+        for (var i = 0; i < _swapChainImages.Length; i++)
+        {
+            var res = Vk.CreateSemaphore(Device, in semaphoreInfo, null, out _renderFinishedSemaphores[i]);
+            if (res != Result.Success ) throw new Exception("failed to create synchronization objects for a frame!");
         }
     }
     
@@ -794,10 +796,22 @@ internal static unsafe class Vulkan
 
     private static string[] GetRequiredExtensions()
     {
-        var glfwExtensions =VkWindow.VkGetRequiredExtensions(out var glfwExtensionCount);
-        var extensions = SilkMarshal.PtrToStringArray((nint)glfwExtensions, (int)glfwExtensionCount);
+        HashSet<string> extList = [];
+        
+        var glfwExtensions = VkWindow.VkGetRequiredExtensions(out var glfwExtensionCount);
+        var glfwExtensionsMarshalled = SilkMarshal.PtrToStringArray((nint)glfwExtensions, (int)glfwExtensionCount);
+        foreach (var i in glfwExtensionsMarshalled) extList.Add(i);
 
-        return EnableValidationLayers ? extensions.Append(ExtDebugUtils.ExtensionName).ToArray() : extensions;
+        extList.Add("VK_KHR_surface");
+        
+        extList.Add(Environment.GetEnvironmentVariable("XDG_SESSION_TYPE") == "wayland" && !RunningUnderRenderDoc()
+            ? "VK_KHR_wayland_surface"
+            : "VK_KHR_xlib_surface");
+        
+        if (EnableValidationLayers) extList.Add(ExtDebugUtils.ExtensionName);
+        
+        Console.WriteLine($"VK Extensions:\t{string.Join("\t", extList)}");
+        return extList.ToArray();
     }
 
     private static bool CheckValidationLayerSupport()
@@ -822,8 +836,14 @@ internal static unsafe class Vulkan
         Console.WriteLine($"# vk validation layer: " + Marshal.PtrToStringAnsi((nint)pCallbackData->PMessage));
         return Vk.False;
     }
+    
+    static bool RunningUnderRenderDoc()
+    {
+        return Environment.GetEnvironmentVariable("RENDERDOC_CAPOPTS") != null
+               || Environment.GetEnvironmentVariable("RENDERDOC_CAPFILE") != null;
+    }
 
-
+    
     private struct QueueFamilyIndices
     {
         public uint? GraphicsFamily { get; set; }

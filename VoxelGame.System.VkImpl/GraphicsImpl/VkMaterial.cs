@@ -7,12 +7,9 @@ namespace VoxelGame.Engine.GraphicsImpl;
 public unsafe class VkMaterial : IMaterial, IDisposable
 {
     
-    private static Pipeline _graphicsPipeline;
+    private Pipeline _graphicsPipeline;
     private PipelineLayout _pipelineLayout;
-    private RenderPass _renderPass;
-    
     public Pipeline GraphicsPipeline => _graphicsPipeline;
-    public RenderPass RenderPass => _renderPass;
     
     internal VkMaterial(string vertPath, string fragPath, MaterialAttributeType[] attrType)
     {
@@ -86,9 +83,9 @@ public unsafe class VkMaterial : IMaterial, IDisposable
             {
                 SType = StructureType.PipelineVertexInputStateCreateInfo,
                 PVertexBindingDescriptions = pBind,
+                VertexBindingDescriptionCount = (uint)bindArr.Length,
                 PVertexAttributeDescriptions = pAttr,
-                VertexBindingDescriptionCount = 2,
-                VertexAttributeDescriptionCount = 2,
+                VertexAttributeDescriptionCount = (uint)attrArr.Length,
             };
         }
 
@@ -98,30 +95,14 @@ public unsafe class VkMaterial : IMaterial, IDisposable
             Topology = PrimitiveTopology.TriangleList,
             PrimitiveRestartEnable = false,
         };
-
-        Viewport viewport = new()
-        {
-            X = 0,
-            Y = 0,
-            Width = Vulkan.SwapChainExtent.Width,
-            Height = Vulkan.SwapChainExtent.Height,
-            MinDepth = 0,
-            MaxDepth = 1,
-        };
-
-        Rect2D scissor = new()
-        {
-            Offset = { X = 0, Y = 0 },
-            Extent = Vulkan.SwapChainExtent,
-        };
-
+        
         PipelineViewportStateCreateInfo viewportState = new()
         {
             SType = StructureType.PipelineViewportStateCreateInfo,
             ViewportCount = 1,
-            PViewports = &viewport,
             ScissorCount = 1,
-            PScissors = &scissor,
+            PViewports = null,
+            PScissors = null,
         };
 
         PipelineRasterizationStateCreateInfo rasterizer = new()
@@ -131,8 +112,8 @@ public unsafe class VkMaterial : IMaterial, IDisposable
             RasterizerDiscardEnable = false,
             PolygonMode = PolygonMode.Fill,
             LineWidth = 1,
-            CullMode = CullModeFlags.BackBit,
-            FrontFace = FrontFace.Clockwise,
+            CullMode = CullModeFlags.None,
+            FrontFace = FrontFace.CounterClockwise,
             DepthBiasEnable = false,
         };
 
@@ -172,8 +153,19 @@ public unsafe class VkMaterial : IMaterial, IDisposable
 
         if (vk.CreatePipelineLayout(dev, in pipelineLayoutInfo, null, out _pipelineLayout) != Result.Success)
             throw new Exception("failed to create pipeline layout!");
+        
+        var dynamicStates = stackalloc DynamicState[]
+        {
+            DynamicState.Viewport,
+            DynamicState.Scissor
+        };
 
-        CreateRenderPass();
+        PipelineDynamicStateCreateInfo dyn = new()
+        {
+            SType = StructureType.PipelineDynamicStateCreateInfo,
+            DynamicStateCount = 2,
+            PDynamicStates = dynamicStates
+        };
         
         GraphicsPipelineCreateInfo pipelineInfo = new()
         {
@@ -186,8 +178,9 @@ public unsafe class VkMaterial : IMaterial, IDisposable
             PRasterizationState = &rasterizer,
             PMultisampleState = &multisampling,
             PColorBlendState = &colorBlending,
+            PDynamicState = &dyn,
             Layout = _pipelineLayout,
-            RenderPass = _renderPass,
+            RenderPass = Vulkan.DefaultRenderPass,
             Subpass = 0,
             BasePipelineHandle = default
         };
@@ -221,62 +214,8 @@ public unsafe class VkMaterial : IMaterial, IDisposable
         return shaderModule;
 
     }
-    private void CreateRenderPass()
-    {
-        AttachmentDescription colorAttachment = new()
-        {
-            Format = Vulkan.SwapChainImageFormat,
-            Samples = SampleCountFlags.Count1Bit,
-            LoadOp = AttachmentLoadOp.Clear,
-            StoreOp = AttachmentStoreOp.Store,
-            StencilLoadOp = AttachmentLoadOp.DontCare,
-            InitialLayout = ImageLayout.Undefined,
-            FinalLayout = ImageLayout.PresentSrcKhr,
-        };
 
-        AttachmentReference colorAttachmentRef = new()
-        {
-            Attachment = 0,
-            Layout = ImageLayout.ColorAttachmentOptimal,
-        };
-
-        SubpassDescription subpass = new()
-        {
-            PipelineBindPoint = PipelineBindPoint.Graphics,
-            ColorAttachmentCount = 1,
-            PColorAttachments = &colorAttachmentRef,
-        };
-
-        SubpassDependency dependency = new()
-        {
-            SrcSubpass = Vk.SubpassExternal,
-            DstSubpass = 0,
-            SrcStageMask = PipelineStageFlags.ColorAttachmentOutputBit,
-            SrcAccessMask = 0,
-            DstStageMask = PipelineStageFlags.ColorAttachmentOutputBit,
-            DstAccessMask = AccessFlags.ColorAttachmentWriteBit
-        };
-
-        RenderPassCreateInfo renderPassInfo = new()
-        {
-            SType = StructureType.RenderPassCreateInfo,
-            AttachmentCount = 1,
-            PAttachments = &colorAttachment,
-            SubpassCount = 1,
-            PSubpasses = &subpass,
-            DependencyCount = 1,
-            PDependencies = &dependency,
-        };
-
-        if (Vulkan.Vk.CreateRenderPass(Vulkan.Device, in renderPassInfo, null, out _renderPass) != Result.Success)
-            throw new Exception("failed to create render pass!");
-    }
     
-    public void Bind()
-    {
-        throw new NotImplementedException();
-    }
-
     void IDisposable.Dispose()
     {
         GC.SuppressFinalize(this);
@@ -285,6 +224,5 @@ public unsafe class VkMaterial : IMaterial, IDisposable
         
         vk.DestroyPipeline(dev, _graphicsPipeline, null);
         vk.DestroyPipelineLayout(dev, _pipelineLayout, null);
-        vk.DestroyRenderPass(dev, _renderPass, null);
     }
 }

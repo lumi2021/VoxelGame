@@ -9,6 +9,8 @@ namespace VoxelGame.Engine;
 public unsafe class VkGraphics : IGraphics
 {
     private IMaterial? _lastMaterial;
+    private uint _lastIndexCount = 0;
+    private uint _lastInstanceCount = 1;
     
     public void Init() => Vulkan.Init();
     public void CleanUp() => Vulkan.CleanUp();
@@ -38,6 +40,7 @@ public unsafe class VkGraphics : IGraphics
     {
         var vk = Vulkan.Vk;
         var cmd = Vulkan.CurrentCommandBuffer;
+        var indexBuffer = ((VkIndexBuffer)ibuf);
         
         var buffers = stackalloc Buffer[vbufs.Length];
         var offsets = stackalloc ulong[vbufs.Length];
@@ -49,12 +52,14 @@ public unsafe class VkGraphics : IGraphics
         }
         
         vk.CmdBindVertexBuffers(cmd, 0, (uint)vbufs.Length, buffers, offsets);
-        vk.CmdBindIndexBuffer(cmd, ((VkIndexBuffer)ibuf).Buf, 0, IndexType.Uint16);
+        vk.CmdBindIndexBuffer(cmd, indexBuffer.Buffer, 0, IndexType.Uint16);
+
+        _lastIndexCount = (uint)indexBuffer.Size;
     }
 
     public void Draw() => Vulkan.Vk.CmdDrawIndexed(Vulkan.CurrentCommandBuffer,
-        0,
-        0,
+        _lastIndexCount,
+        _lastInstanceCount,
         0,
         0,
         0);

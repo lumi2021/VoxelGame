@@ -36,7 +36,7 @@ public class Game : IGame
 
         ushort[] indices = [ 0, 1, 2, 0, 2, 3 ];
         Vec3[] vertices = [ new(0, 0, 0), new(1, 0, 0), new(1, 1, 0), new(0, 1, 0) ];
-        Vec2[] uvs = [ new(0, 0), new(1, 0), new(1, 1) ];
+        Vec2[] uvs = [ new(0, 0), new(1, 0), new(1, 1), new(0, 1) ];
         
         _indexBuffer.Fetch(indices);
         _vertexPositionBuffer.Fetch(vertices);

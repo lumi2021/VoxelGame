@@ -4,6 +4,5 @@ public interface IIndexBuffer
 {
     
     public void Fetch(ushort[] indices);
-    public void Bind();
     
 }
