@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Silk.NET.Core.Native;
 using Silk.NET.Vulkan;
 using VoxelGame.Core.Data.Graphics;
@@ -10,8 +11,13 @@ public unsafe class VkMaterial : IMaterial, IDisposable
     private Pipeline _graphicsPipeline;
     private PipelineLayout _pipelineLayout;
     public Pipeline GraphicsPipeline => _graphicsPipeline;
+    public PipelineLayout PipelineLayout => _pipelineLayout;
     
-    internal VkMaterial(string vertPath, string fragPath, MaterialAttributeType[] attrType)
+    internal VkMaterial(
+        string vertPath, string fragPath,
+        MaterialType[] attrType,
+        MaterialType[] vertexUniforms,
+        MaterialType[] fragmentUniforms)
     {
         var vk = Vulkan.Vk;
         var dev = Vulkan.Device;
@@ -45,28 +51,19 @@ public unsafe class VkMaterial : IMaterial, IDisposable
 
         for (uint i = 0; i < attrType.Length; i++)
         {
-            if (attrType[i] == MaterialAttributeType.Void) continue;
+            if (attrType[i] == MaterialType.Void) continue;
             
-            var stride = (uint)(attrType[i] switch
-            {
-                MaterialAttributeType.Vec2 => sizeof(float) * 2,
-                MaterialAttributeType.Vec3 => sizeof(float) * 3,
-                MaterialAttributeType.Vec4 => sizeof(float) * 4,
-                MaterialAttributeType.Float => sizeof(float),
-                MaterialAttributeType.Int => sizeof(int),
-                MaterialAttributeType.UInt => sizeof(uint),
-                _ => throw new ArgumentOutOfRangeException()
-            });
             var format = attrType[i] switch
             {
-                MaterialAttributeType.Vec2 => Format.R32G32Sfloat,
-                MaterialAttributeType.Vec3 => Format.R32G32B32Sfloat,
-                MaterialAttributeType.Vec4 => Format.R32G32B32A32Sfloat,
-                MaterialAttributeType.Float => Format.R32Sfloat,
-                MaterialAttributeType.Int => Format.R32Sint,
-                MaterialAttributeType.UInt => Format.R32Uint,
-                _ => throw new ArgumentOutOfRangeException()
+                MaterialType.Vec2 => Format.R32G32Sfloat,
+                MaterialType.Vec3 => Format.R32G32B32Sfloat,
+                MaterialType.Vec4 => Format.R32G32B32A32Sfloat,
+                MaterialType.Float => Format.R32Sfloat,
+                MaterialType.Int => Format.R32Sint,
+                MaterialType.UInt => Format.R32Uint,
+                _ => throw new UnreachableException()
             };
+            var stride = (uint)SizeOf(attrType[i]);
             
             bindings.Add(new VertexInputBindingDescription { Binding = i, Stride = stride, InputRate = VertexInputRate.Vertex});
             attributes.Add(new VertexInputAttributeDescription { Binding = i, Location = i, Format = format, Offset = 0 });
@@ -144,11 +141,24 @@ public unsafe class VkMaterial : IMaterial, IDisposable
         colorBlending.BlendConstants[2] = 0;
         colorBlending.BlendConstants[3] = 0;
 
+        var constantRanges = stackalloc[]
+        {
+            new PushConstantRange { Offset = 0, Size = 0, StageFlags = ShaderStageFlags.VertexBit },
+            new PushConstantRange { Offset = 0, Size = 0, StageFlags = ShaderStageFlags.FragmentBit },
+        };
+        
+        var fullSize = vertexUniforms.Aggregate<MaterialType, uint>(0, (current, i) => current + (uint)SizeOf(i));
+        constantRanges[0].Size = fullSize;
+        constantRanges[1].Offset = fullSize;
+        fullSize = fragmentUniforms.Aggregate<MaterialType, uint>(0, (current, i) => current + (uint)SizeOf(i));
+        constantRanges[1].Size = Math.Max(4, fullSize);
+        
         PipelineLayoutCreateInfo pipelineLayoutInfo = new()
         {
             SType = StructureType.PipelineLayoutCreateInfo,
             SetLayoutCount = 0,
-            PushConstantRangeCount = 0,
+            PushConstantRangeCount = 2,
+            PPushConstantRanges = constantRanges,
         };
 
         if (vk.CreatePipelineLayout(dev, in pipelineLayoutInfo, null, out _pipelineLayout) != Result.Success)
@@ -215,6 +225,23 @@ public unsafe class VkMaterial : IMaterial, IDisposable
 
     }
 
+    private static int SizeOf(MaterialType type)
+    {
+        return type switch
+        {
+            MaterialType.Void => 0,
+            MaterialType.Vec2 => 4 * 2,
+            MaterialType.Vec3 => 4 * 3,
+            MaterialType.Vec4 => 4 * 4,
+            MaterialType.Float => 4,
+            MaterialType.Int => 4,
+            MaterialType.UInt => 4,
+            MaterialType.Mat2 => 4 * 4,
+            MaterialType.Mat3 => 4 * 9,
+            MaterialType.Mat4 => 4 * 16,
+            _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
+        };
+    }
     
     void IDisposable.Dispose()
     {

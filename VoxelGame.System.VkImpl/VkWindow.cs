@@ -31,13 +31,12 @@ public class VkWindow : IWindowCore
         _window.Render += Singletons.Game.Draw;
 
         _window.Initialize();
-        
-        //Glfw.GetApi().SetErrorCallback((code, desc) => Console.WriteLine($"GLFW Error {code}: {desc}"));
+      
         if (_window.VkSurface is null) throw new Exception("Windowing platform doesn't support Vulkan.");
     }
+    
     public void Run() => _window.Run();
     public void Dispose() => _window.Dispose();
-    
     
     internal static unsafe SurfaceKHR VkCreateSurface(Instance instance)
         => _window!.VkSurface!.Create<AllocationCallbacks>(instance.ToHandle(), null).ToSurface();

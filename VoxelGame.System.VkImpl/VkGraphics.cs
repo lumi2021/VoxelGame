@@ -1,3 +1,4 @@
+using System.Numerics;
 using Silk.NET.Vulkan;
 using VoxelGame.Core;
 using VoxelGame.Core.Data.Graphics;
@@ -9,6 +10,7 @@ namespace VoxelGame.Engine;
 public unsafe class VkGraphics : IGraphics
 {
     private IMaterial? _lastMaterial;
+    private PipelineLayout _lastPipelineLayout = default;
     private uint _lastIndexCount = 0;
     private uint _lastInstanceCount = 1;
     
@@ -25,15 +27,17 @@ public unsafe class VkGraphics : IGraphics
     public IIndexBuffer GenerateIndexBuffer() => new VkIndexBuffer();
     public IVertexBuffer<T> GenerateVertexBuffer<T>() where T : struct => new VkVertexBuffer<T>();
 
-    public IMaterial GenerateMaterial(string vertPath, string fragPath, MaterialAttributeType[] attrTypes)
-        => new VkMaterial(vertPath, fragPath, attrTypes);
+    public IMaterial GenerateMaterial(string vertPath, string fragPath, MaterialType[] a, MaterialType[] v, MaterialType[] f)
+        => new VkMaterial(vertPath, fragPath, a, v, f);
 
     public void BindMaterial(IMaterial material)
     {
         if (_lastMaterial == material) return;
         var vk = Vulkan.Vk;
-        vk.CmdBindPipeline(Vulkan.CurrentCommandBuffer, PipelineBindPoint.Graphics, ((VkMaterial)material).GraphicsPipeline);
+        var mat = (VkMaterial)material;
+        vk.CmdBindPipeline(Vulkan.CurrentCommandBuffer, PipelineBindPoint.Graphics, mat.GraphicsPipeline);
         _lastMaterial = material;
+        _lastPipelineLayout = mat.PipelineLayout;
     }
 
     public void BindMesh(IIndexBuffer ibuf, IGenericVertexBuffer[] vbufs)
@@ -57,10 +61,17 @@ public unsafe class VkGraphics : IGraphics
         _lastIndexCount = (uint)indexBuffer.Size;
     }
 
+    public void BindMat4(int index, Matrix4x4 matrix)
+    {
+        var offset = (uint)(sizeof(Matrix4x4) * index);
+        var length = (uint)sizeof(Matrix4x4);
+        Vulkan.Vk.CmdPushConstants(
+            Vulkan.CurrentCommandBuffer,
+            _lastPipelineLayout,
+            ShaderStageFlags.VertexBit,
+            offset, length, ref matrix);
+    }
+    
     public void Draw() => Vulkan.Vk.CmdDrawIndexed(Vulkan.CurrentCommandBuffer,
-        _lastIndexCount,
-        _lastInstanceCount,
-        0,
-        0,
-        0);
+        _lastIndexCount, _lastInstanceCount, 0, 0, 0);
 }

@@ -1,3 +1,4 @@
+using System.Numerics;
 using VoxelGame.Core;
 using VoxelGame.Core.Data.Graphics;
 using VoxelGame.Core.Math;
@@ -25,10 +26,10 @@ public class Game : IGame
         _material = Singletons.Graphics.GenerateMaterial(
             "shaders/chunk.vert.spv",
             "shaders/chunk.frag.spv",
-            [
-                MaterialAttributeType.Vec3,
-                MaterialAttributeType.Vec2
-            ]);
+            [MaterialType.Vec3, MaterialType.Vec2],
+            [MaterialType.Mat4, MaterialType.Mat4, MaterialType.Mat4],
+            []
+            );
 
         _indexBuffer = Singletons.Graphics.GenerateIndexBuffer();
         _vertexPositionBuffer = Singletons.Graphics.GenerateVertexBuffer<Vec3>();
@@ -57,8 +58,15 @@ public class Game : IGame
     {
         Singletons.Graphics.BeginRenderingFrame();
         
+        var projection = Matrix4x4.CreatePerspectiveFieldOfView(MathF.PI / 180 * 90f, 800/600f, 0.0001f, 100000f);
+        var view = Matrix4x4.CreateLookTo(Vector3.Zero, Vector3.UnitZ,  Vector3.UnitY);
+        var model = Matrix4x4.CreateTranslation(0, 0, 5);
+        
         Singletons.Graphics.BindMaterial(_material);
         Singletons.Graphics.BindMesh(_indexBuffer, [_vertexPositionBuffer, _vertexCoordBuffer]);
+        Singletons.Graphics.BindMat4(0, projection);
+        Singletons.Graphics.BindMat4(1, model);
+        Singletons.Graphics.BindMat4(2, view);
         Singletons.Graphics.Draw();
         
         Singletons.Graphics.EndRenderingFrame();

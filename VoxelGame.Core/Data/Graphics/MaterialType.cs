@@ -1,6 +1,6 @@
 namespace VoxelGame.Core.Data.Graphics;
 
-public enum MaterialAttributeType
+public enum MaterialType
 {
     Void,
     
@@ -15,4 +15,8 @@ public enum MaterialAttributeType
     Float,
     Int,
     UInt,
+    
+    Mat2,
+    Mat3,
+    Mat4,
 }
