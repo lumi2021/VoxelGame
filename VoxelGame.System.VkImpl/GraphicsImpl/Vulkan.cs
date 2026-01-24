@@ -23,7 +23,6 @@ internal static unsafe class Vulkan
 
     internal static Vk Vk = null!;
     internal static Device Device;
-    internal static Extent2D SwapChainExtent;
     internal static PipelineLayout PipelineLayout;
     
     internal static RenderPass DefaultRenderPass;
@@ -45,9 +44,14 @@ internal static unsafe class Vulkan
     private static KhrSwapchain? _khrSwapChain;
     private static SwapchainKHR _swapChain;
     private static Image[]? _swapChainImages;
-    internal static Format SwapChainImageFormat;
     private static ImageView[]? _swapChainImageViews;
     private static Framebuffer[]? _swapChainFramebuffers;
+
+    private static uint _swapChainImageCount;
+    private static Extent2D _swapChainExtent;
+    private static SurfaceFormatKHR _swapChainSurfaceFormat;
+    private static PresentModeKHR _swapChainPresentMode;
+    private static SwapChainSupportDetails _swapChainSupportDetails;
 
     private static Image _depthImage;
     private static DeviceMemory _depthImageMemory;
@@ -75,13 +79,19 @@ internal static unsafe class Vulkan
         PickPhysicalDevice();
         CreateLogicalDevice();
         CreateSwapChain();
-        CreateImageViews();
-        CreateRenderPass();
-        CreateDepthResources();
-        CreateFramebuffers();
         CreateCommandPool();
         CreateCommandBuffers();
         CreateSyncObjects();
+    }
+
+    internal static void Resize(int width, int height)
+    {
+        throw new NotImplementedException();
+        
+        WaitDeviceIdle();
+        CleanupSwapChain();
+        ResetSwapChain();
+        Console.WriteLine("Swap chain rebuilt");
     }
     internal static void CleanUp()
     {
@@ -115,12 +125,19 @@ internal static unsafe class Vulkan
 
     internal static void BeginRenderingFrame()
     {
+        TryAgain:
         Vk.WaitForFences(Device, 1, in _inFlightFences![_currentFrame], true, ulong.MaxValue);
 
         _imageIndex = 0;
-        _khrSwapChain!.AcquireNextImage(Device, _swapChain, ulong.MaxValue,
+        var res = _khrSwapChain!.AcquireNextImage(Device, _swapChain, ulong.MaxValue,
             _imageAvailableSemaphores![_currentFrame], default, ref _imageIndex);
-
+        if (res == Result.ErrorOutOfDateKhr)
+        {
+            Console.WriteLine("Resizing and trying again...");
+            Resize(0, 0);
+            goto TryAgain;
+        }
+        
         if (_imagesInFlight![_imageIndex].Handle != 0)
             Vk.WaitForFences(Device, 1, in _imagesInFlight[_imageIndex], true, ulong.MaxValue);
         
@@ -143,15 +160,15 @@ internal static unsafe class Vulkan
             Framebuffer = CurrentFramebuffer,
             RenderArea = {
                 Offset = { X = 0, Y = 0 },
-                Extent = SwapChainExtent,
+                Extent = _swapChainExtent,
             },
             ClearValueCount = 2,
             PClearValues = clearValue,
         };
         Vk.CmdBeginRenderPass(CurrentCommandBuffer, &renderPassInfo, SubpassContents.Inline);
 
-        var vp = new Viewport(0f, 0f, SwapChainExtent.Width, SwapChainExtent.Height, 0f, 1f);
-        var sc = new Rect2D(new Offset2D(0, 0), SwapChainExtent);
+        var vp = new Viewport(0f, 0f, _swapChainExtent.Width, _swapChainExtent.Height, 0f, 1f);
+        var sc = new Rect2D(new Offset2D(0, 0), _swapChainExtent);
 
         Vk.CmdSetViewport(CurrentCommandBuffer, 0, 1, &vp);
         Vk.CmdSetScissor(CurrentCommandBuffer, 0, 1, &sc);
@@ -267,7 +284,7 @@ internal static unsafe class Vulkan
             ApplicationVersion = new Version32(1, 0, 0),
             PEngineName = (byte*)Marshal.StringToHGlobalAnsi("No Engine"),
             EngineVersion = new Version32(1, 0, 0),
-            ApiVersion = Vk.Version10
+            ApiVersion = Vk.Version13
         };
 
         InstanceCreateInfo createInfo = new()
@@ -408,31 +425,63 @@ internal static unsafe class Vulkan
         SilkMarshal.Free((nint)createInfo.PpEnabledExtensionNames);
 
     }
-
+    
     private static void CreateSwapChain()
     {
-        var swapChainSupport = QuerySwapChainSupport(_physicalDevice);
+        _swapChainSupportDetails = QuerySwapChainSupport(_physicalDevice);
+        _swapChainSurfaceFormat = ChooseSwapSurfaceFormat(_swapChainSupportDetails.Formats);
+        _swapChainPresentMode = ChoosePresentMode(_swapChainSupportDetails.PresentModes);
+        _swapChainExtent = ChooseSwapExtent(_swapChainSupportDetails.Capabilities);
+        
+        _swapChainImageCount = _swapChainSupportDetails.Capabilities.MinImageCount + 1;
+        if (_swapChainSupportDetails.Capabilities.MaxImageCount > 0 && _swapChainImageCount > _swapChainSupportDetails.Capabilities.MaxImageCount)
+            _swapChainImageCount = _swapChainSupportDetails.Capabilities.MaxImageCount;
 
-        var surfaceFormat = ChooseSwapSurfaceFormat(swapChainSupport.Formats);
-        var presentMode = ChoosePresentMode(swapChainSupport.PresentModes);
-        var extent = ChooseSwapExtent(swapChainSupport.Capabilities);
+        ResetSwapChain();
+    }
 
-        var imageCount = swapChainSupport.Capabilities.MinImageCount + 1;
-        if (swapChainSupport.Capabilities.MaxImageCount > 0 && imageCount > swapChainSupport.Capabilities.MaxImageCount)
-            imageCount = swapChainSupport.Capabilities.MaxImageCount;
+    private static void CleanupSwapChain()
+    {
+        // Destroy depth resources
+        Vk.DestroyImageView(Device, _depthImageView, null);
+        Vk.DestroyImage(Device, _depthImage, null);
+        Vk.FreeMemory(Device, _depthImageMemory, null);
 
+        // 2. Destroy framebuffers
+        foreach (var framebuffer in _swapChainFramebuffers!)
+            Vk.DestroyFramebuffer(Device, framebuffer, null);
+        _swapChainFramebuffers = null;
+        
+        // 3. Destroy image views
+        foreach (var imageView in _swapChainImageViews!)
+            Vk.DestroyImageView(Device, imageView, null);
+        _swapChainImageViews = null;
+        
+        // 4. Destroy render pass
+        Vk.DestroyRenderPass(Device, DefaultRenderPass, null);
+        
+        // 5. Reset frames
+        _currentFrame = 0;
+        for (var i = 0; i < _imagesInFlight!.Length; i++) Vk.ResetFences(Device, 1, in _imagesInFlight![i]);
+        for (var i = 0; i < _inFlightFences!.Length; i++) Vk.ResetFences(Device, 1, in _inFlightFences![i]);
+    }
+    
+    private static void ResetSwapChain()
+    {
+        var oldSwapChain = _swapChain;
+        
         SwapchainCreateInfoKHR creatInfo = new()
         {
             SType = StructureType.SwapchainCreateInfoKhr,
             Surface = _surface,
 
-            MinImageCount = imageCount,
-            ImageFormat = surfaceFormat.Format,
-            ImageColorSpace = surfaceFormat.ColorSpace,
-            ImageExtent = extent,
+            MinImageCount = _swapChainImageCount,
+            ImageFormat = _swapChainSurfaceFormat.Format,
+            ImageColorSpace = _swapChainSurfaceFormat.ColorSpace,
+            ImageExtent = _swapChainExtent,
             ImageArrayLayers = 1,
             ImageUsage = ImageUsageFlags.ColorAttachmentBit,
-            PresentMode = PresentModeKHR.FifoKhr
+            PresentMode = PresentModeKHR.FifoKhr,
         };
 
         var indices = FindQueueFamilies(_physicalDevice);
@@ -451,31 +500,32 @@ internal static unsafe class Vulkan
 
         creatInfo = creatInfo with
         {
-            PreTransform = swapChainSupport.Capabilities.CurrentTransform,
+            PreTransform = _swapChainSupportDetails.Capabilities.CurrentTransform,
             CompositeAlpha = CompositeAlphaFlagsKHR.OpaqueBitKhr,
-            PresentMode = presentMode,
+            PresentMode = _swapChainPresentMode,
             Clipped = true,
 
-            OldSwapchain = default
+            OldSwapchain = oldSwapChain
         };
 
         if (!Vk!.TryGetDeviceExtension(_instance, Device, out _khrSwapChain))
             throw new NotSupportedException("VK_KHR_swapchain extension not found.");
 
-        if (_khrSwapChain!.CreateSwapchain(Device, in creatInfo, null, out _swapChain) != Result.Success)
-            throw new Exception("failed to create swap chain!");
-
-        _khrSwapChain.GetSwapchainImages(Device, _swapChain, ref imageCount, null);
-        _swapChainImages = new Image[imageCount];
+        var res = _khrSwapChain!.CreateSwapchain(Device, in creatInfo, null, out _swapChain);
+        if (res != Result.Success) throw new Exception("failed to create swap chain!");
+        if (oldSwapChain.Handle != 0) _khrSwapChain.DestroySwapchain(Device, oldSwapChain, null);
+        
+        _khrSwapChain.GetSwapchainImages(Device, _swapChain, ref _swapChainImageCount, null);
+        _swapChainImages = new Image[_swapChainImageCount];
         fixed (Image* swapChainImagesPtr = _swapChainImages)
-        {
-            _khrSwapChain.GetSwapchainImages(Device, _swapChain, ref imageCount, swapChainImagesPtr);
-        }
-
-        SwapChainImageFormat = surfaceFormat.Format;
-        SwapChainExtent = extent;
+            _khrSwapChain.GetSwapchainImages(Device, _swapChain, ref _swapChainImageCount, swapChainImagesPtr);
+        
+        CreateImageViews();
+        CreateRenderPass();
+        CreateDepthResources();
+        CreateFramebuffers();
     }
-
+    
     private static void CreateImageViews()
     {
         _swapChainImageViews = new ImageView[_swapChainImages!.Length];
@@ -487,7 +537,7 @@ internal static unsafe class Vulkan
                 SType = StructureType.ImageViewCreateInfo,
                 Image = _swapChainImages[i],
                 ViewType = ImageViewType.Type2D,
-                Format = SwapChainImageFormat,
+                Format = _swapChainSurfaceFormat.Format,
                 Components =
                 {
                     R = ComponentSwizzle.Identity,
@@ -515,7 +565,7 @@ internal static unsafe class Vulkan
     {
         AttachmentDescription colorAttachment = new()
         {
-            Format = SwapChainImageFormat,
+            Format = _swapChainSurfaceFormat.Format,
             Samples = SampleCountFlags.Count1Bit,
             LoadOp = AttachmentLoadOp.Clear,
             StoreOp = AttachmentStoreOp.Store,
@@ -587,8 +637,8 @@ internal static unsafe class Vulkan
     {
         const Format depthFormat = Format.D32Sfloat;
         CreateImage(
-            SwapChainExtent.Width, 
-            SwapChainExtent.Height, 
+            _swapChainExtent.Width, 
+            _swapChainExtent.Height, 
             depthFormat,
             ImageTiling.Optimal,
             ImageUsageFlags.DepthStencilAttachmentBit,
@@ -599,6 +649,30 @@ internal static unsafe class Vulkan
         _depthImageView = CreateImageView(_depthImage, depthFormat, ImageAspectFlags.DepthBit);
     }
 
+    private static void CreateFramebuffers()
+    {
+        _swapChainFramebuffers = new Framebuffer[_swapChainImageViews!.Length];
+
+        for (var i = 0; i < _swapChainImageViews.Length; i++)
+        {
+            var attachment = stackalloc[] {_swapChainImageViews[i], _depthImageView };
+
+            FramebufferCreateInfo framebufferInfo = new()
+            {
+                SType = StructureType.FramebufferCreateInfo,
+                RenderPass = DefaultRenderPass,
+                AttachmentCount = 2,
+                PAttachments = attachment,
+                Width = _swapChainExtent.Width,
+                Height = _swapChainExtent.Height,
+                Layers = 1,
+            };
+
+            if (Vk!.CreateFramebuffer(Device, in framebufferInfo, null, out _swapChainFramebuffers[i]) != Result.Success)
+                throw new Exception("failed to create framebuffer!");
+        }
+    }
+    
     private static void CreateImage(
         uint width, uint height, Format format, ImageTiling tiling, ImageUsageFlags usage,
         MemoryPropertyFlags properties, out Image image, out DeviceMemory imageMemory)
@@ -635,7 +709,6 @@ internal static unsafe class Vulkan
 
         Vk.BindImageMemory(Device, image, imageMemory, 0);
     }
-
     private static ImageView CreateImageView(Image image, Format format, ImageAspectFlags aspectFlags)
     {
         ImageViewCreateInfo viewInfo = new()
@@ -660,30 +733,6 @@ internal static unsafe class Vulkan
         return imageView;
     }
     
-    private static void CreateFramebuffers()
-    {
-        _swapChainFramebuffers = new Framebuffer[_swapChainImageViews!.Length];
-
-        for (var i = 0; i < _swapChainImageViews.Length; i++)
-        {
-            var attachment = stackalloc[] {_swapChainImageViews[i], _depthImageView };
-
-            FramebufferCreateInfo framebufferInfo = new()
-            {
-                SType = StructureType.FramebufferCreateInfo,
-                RenderPass = DefaultRenderPass,
-                AttachmentCount = 2,
-                PAttachments = attachment,
-                Width = SwapChainExtent.Width,
-                Height = SwapChainExtent.Height,
-                Layers = 1,
-            };
-
-            if (Vk!.CreateFramebuffer(Device, in framebufferInfo, null, out _swapChainFramebuffers[i]) != Result.Success)
-                throw new Exception("failed to create framebuffer!");
-        }
-    }
-
     private static void CreateCommandPool()
     {
         var queueFamilyIndices = FindQueueFamilies(_physicalDevice);

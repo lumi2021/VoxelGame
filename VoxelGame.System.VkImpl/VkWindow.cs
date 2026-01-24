@@ -2,6 +2,7 @@ using Silk.NET.Maths;
 using Silk.NET.Vulkan;
 using Silk.NET.Windowing;
 using VoxelGame.Core;
+using VoxelGame.Core.Data.Input;
 using VoxelGame.Core.Math;
 using IWindow = Silk.NET.Windowing.IWindow;
 using SilkWin = Silk.NET.Windowing.Window;
@@ -13,8 +14,8 @@ public class VkWindow : IWindowCore
 {
     internal IWindow Window = null!;
 
-    public VecU2 Position => new ((uint)Window.Position.X, (uint)Window.Position.Y);
-    public VecU2 Size => new((uint)Window.FramebufferSize.X, (uint)Window.FramebufferSize.Y);
+    public Vec2U Position => new ((uint)Window.Position.X, (uint)Window.Position.Y);
+    public Vec2U Size => new((uint)Window.FramebufferSize.X, (uint)Window.FramebufferSize.Y);
     
     public void Init()
     {
@@ -26,29 +27,40 @@ public class VkWindow : IWindowCore
         };
 
         Window = SilkWin.Create(options);
-
-        Window.Load += Singletons.Game.Init;
+        
         Window.Update += Singletons.Game.Update;
         Window.Render += Singletons.Game.Draw;
+        Window.Resize += (v) => Singletons.Graphics.Resize(v.X, v.Y);
 
         Window.Initialize();
         ((VkInput)Singletons.Input).Initialize();
+        Window.Center();
         
         if (Window.VkSurface is null) throw new Exception("Windowing platform doesn't support Vulkan.");
     }
 
     public void Run()
     {
-        Window.Initialize();
-        while (true)
+        try
         {
-            ((VkInput)Singletons.Input).Update();
-            Window.DoEvents(); if (Window.IsClosing) break;
-            
-            Window.DoRender();
-            Window.DoUpdate();
+            Singletons.Game.Init();
+            while (true)
+            {
+                ((VkInput)Singletons.Input).Update();
+                Window.DoEvents();
+                if (Window.IsClosing) break;
+
+                Window.DoRender();
+                Window.DoUpdate();
+            }
+
+            Window.Reset();
         }
-        Window.Reset();
+        catch (Exception e)
+        {
+            Singletons.Input.CursorMode = CursorMode.Normal;
+            throw;
+        }
     }
     public void Dispose() => Window.Dispose();
     

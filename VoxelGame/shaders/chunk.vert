@@ -5,8 +5,8 @@ layout(location = 1) in vec2 vertex_uv;
 
 layout(push_constant) uniform PushConstants {
     mat4 mat_projection;
-    mat4 mat_model;
     mat4 mat_view;
+    mat4 mat_model;
 } constants;
 
 layout(location = 0) out vec2 frag_coord;

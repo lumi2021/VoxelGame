@@ -15,6 +15,7 @@ public unsafe class VkGraphics : IGraphics
     private uint _lastInstanceCount = 1;
     
     public void Init() => Vulkan.Init();
+    public void Resize(int width, int height) => Vulkan.Resize(width, height);
     public void CleanUp() => Vulkan.CleanUp();
 
     public void BeginRenderingFrame()
@@ -26,16 +27,35 @@ public unsafe class VkGraphics : IGraphics
 
     public IIndexBuffer GenerateIndexBuffer() => new VkIndexBuffer();
     public IVertexBuffer<T> GenerateVertexBuffer<T>() where T : struct => new VkVertexBuffer<T>();
-
-    public IMaterial GenerateMaterial(string vertPath, string fragPath, MaterialType[] a, MaterialType[] v, MaterialType[] f)
-        => new VkMaterial(vertPath, fragPath, a, v, f);
+    public ITexture GenerateTexture(string filePath) => VkTexture.FromFile(filePath);
+    
+    public IMaterial GenerateMaterial(string vertPath, string fragPath, MaterialType[] a, MaterialType[] v, MaterialType[] f, uint t)
+        => new VkMaterial(vertPath, fragPath, a, v, f, t);
 
     public void BindMaterial(IMaterial material)
     {
         if (_lastMaterial == material) return;
+        
         var vk = Vulkan.Vk;
         var mat = (VkMaterial)material;
+        var dst = mat.DescriptorSet;
+        
         vk.CmdBindPipeline(Vulkan.CurrentCommandBuffer, PipelineBindPoint.Graphics, mat.GraphicsPipeline);
+        if (dst.HasValue)
+        {
+            var descriptorSet = dst.Value;
+            vk.CmdBindDescriptorSets(
+                Vulkan.CurrentCommandBuffer,
+                PipelineBindPoint.Graphics,
+                mat.PipelineLayout,
+                0,
+                1,
+                &descriptorSet,
+                0,
+                null
+                );
+        }
+        
         _lastMaterial = material;
         _lastPipelineLayout = mat.PipelineLayout;
     }
@@ -56,7 +76,7 @@ public unsafe class VkGraphics : IGraphics
         }
         
         vk.CmdBindVertexBuffers(cmd, 0, (uint)vbufs.Length, buffers, offsets);
-        vk.CmdBindIndexBuffer(cmd, indexBuffer.Buffer, 0, IndexType.Uint16);
+        vk.CmdBindIndexBuffer(cmd, indexBuffer.Buffer, 0, IndexType.Uint32);
 
         _lastIndexCount = (uint)indexBuffer.Size;
     }

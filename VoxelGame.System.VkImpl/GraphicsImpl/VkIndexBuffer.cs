@@ -28,11 +28,11 @@ internal unsafe class VkIndexBuffer : IIndexBuffer, IDisposable
         _bufSize = 0;
     }
     
-    public void Fetch(ushort[] indices)
+    public void Fetch(uint[] indices)
     {
         var vk = Vulkan.Vk;
         var dev = Vulkan.Device;
-        ulong bytesSize = (uint)(sizeof(ushort) * Math.Min(64, indices.Length));
+        var bytesSize = sizeof(uint) * (ulong)Math.Max(64, indices.Length);
         
         // Create destiny buffer in memory
         var newBufferInfo = new BufferCreateInfo() {
@@ -76,7 +76,7 @@ internal unsafe class VkIndexBuffer : IIndexBuffer, IDisposable
         // Maps source memory and copy data to it
         void* mapped;
         vk.MapMemory(dev, srcBufferMemory, 0, bytesSize, 0, &mapped);
-        indices.CopyTo(new Span<ushort>(mapped, indices.Length));
+        indices.CopyTo(new Span<uint>(mapped, indices.Length));
         vk.UnmapMemory(dev, srcBufferMemory);
         
         var cmd = Vulkan.BeginSingleTimeCommands();
@@ -85,6 +85,8 @@ internal unsafe class VkIndexBuffer : IIndexBuffer, IDisposable
         Vulkan.EndSingleTimeCommands(cmd);
         
         vk.FreeMemory(dev, srcBufferMemory, null);
+        vk.DestroyBuffer(dev, srcBuffer, null);
+        
         vk.FreeMemory(dev, _mem, null);
         vk.DestroyBuffer(dev, _buf, null);
         

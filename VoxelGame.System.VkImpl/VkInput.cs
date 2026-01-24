@@ -3,9 +3,11 @@ using System.Text;
 using Silk.NET.Input;
 using VoxelGame.Core;
 using VoxelGame.Core.Data.Input;
+using CursorMode = VoxelGame.Core.Data.Input.CursorMode;
 using Key = VoxelGame.Core.Data.Input.Key;
 using SilkKey = Silk.NET.Input.Key;
 using SilkMouseBtn = Silk.NET.Input.MouseButton;
+using SilkCursorMode = Silk.NET.Input.CursorMode;
 
 namespace VoxelGame.Engine;
 
@@ -20,6 +22,8 @@ public class VkInput : IInput
     private readonly StringBuilder _charBuffer = new();
     private Dictionary<Key, (bool pressed, int updateFrame)> _keyboardState = [];
     private Dictionary<MouseBtn, (bool pressed, int updateFrame)> _mouseButtonState = [];
+    private Vector2 _lastCursorPosition = Vector2.Zero;
+    private Vector2 _cursorOffset = Vector2.Zero;
     
     public string Clipboard
     {
@@ -27,6 +31,27 @@ public class VkInput : IInput
         set => _keyboard.ClipboardText = value;
     }
     public string CharacterBuffer => _charBuffer.ToString();
+
+    public Vector2 CursorPosition => _mouse.Position;
+    public Vector2 CursorOffset => _cursorOffset;
+    public CursorMode CursorMode
+    {
+        get => _mouse.Cursor.CursorMode switch
+        {
+            SilkCursorMode.Normal => CursorMode.Normal,
+            SilkCursorMode.Hidden => CursorMode.Invisible,
+            SilkCursorMode.Raw => CursorMode.Captured,
+            _ => throw new ArgumentOutOfRangeException()
+        };
+        set => _mouse.Cursor.CursorMode = value switch
+        {
+            CursorMode.Normal => SilkCursorMode.Normal,
+            CursorMode.Invisible => SilkCursorMode.Hidden,
+            CursorMode.Captured => SilkCursorMode.Raw,
+            _ => throw new ArgumentOutOfRangeException()
+        };
+    }
+    
     
     internal void Initialize()
     {
@@ -49,6 +74,7 @@ public class VkInput : IInput
     internal void Update()
     {
         _charBuffer.Clear();
+        _cursorOffset = Vector2.Zero;
         _frameCounter++;
     }
     
@@ -58,7 +84,11 @@ public class VkInput : IInput
     private void KeyboardOnKeyUp(IKeyboard dev, SilkKey key, int keycode)
         => _keyboardState[(Key)key] = (false, _frameCounter);
 
-    private void MouseOnMouseMove(IMouse dev, Vector2 position) {}
+    private void MouseOnMouseMove(IMouse dev, Vector2 position)
+    {
+        _cursorOffset += position - _lastCursorPosition;
+        _lastCursorPosition = position;
+    }
     private void MouseOnMouseDown(IMouse dev, SilkMouseBtn button)
         => _mouseButtonState[(MouseBtn)button] = (true, _frameCounter);
     private void MouseOnMouseUp(IMouse dev, SilkMouseBtn button)

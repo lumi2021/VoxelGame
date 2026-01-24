@@ -10,6 +10,13 @@ public unsafe class VkMaterial : IMaterial, IDisposable
     
     private Pipeline _graphicsPipeline;
     private PipelineLayout _pipelineLayout;
+
+    private readonly uint _textureCount;
+    private DescriptorSet _descriptorSet;
+    private DescriptorPool _descriptorPool;
+    
+    public DescriptorSet? DescriptorSet => _descriptorSet.Handle == 0x0 ? null : _descriptorSet;
+    
     public Pipeline GraphicsPipeline => _graphicsPipeline;
     public PipelineLayout PipelineLayout => _pipelineLayout;
     
@@ -17,7 +24,8 @@ public unsafe class VkMaterial : IMaterial, IDisposable
         string vertPath, string fragPath,
         MaterialType[] attrType,
         MaterialType[] vertexUniforms,
-        MaterialType[] fragmentUniforms)
+        MaterialType[] fragmentUniforms,
+        uint textureCount)
     {
         var vk = Vulkan.Vk;
         var dev = Vulkan.Device;
@@ -163,12 +171,31 @@ public unsafe class VkMaterial : IMaterial, IDisposable
         fullSize = fragmentUniforms.Aggregate<MaterialType, uint>(0, (current, i) => current + (uint)SizeOf(i));
         constantRanges[1].Size = Math.Max(4, fullSize);
         
+        var samplerBinding = new DescriptorSetLayoutBinding
+        {
+            Binding = 0,
+            DescriptorType = DescriptorType.CombinedImageSampler,
+            DescriptorCount = textureCount,
+            StageFlags = ShaderStageFlags.FragmentBit
+        };
+
+        var layoutInfo = new DescriptorSetLayoutCreateInfo
+        {
+            SType = StructureType.DescriptorSetLayoutCreateInfo,
+            BindingCount = 1,
+            PBindings = &samplerBinding
+        };
+
+        vk.CreateDescriptorSetLayout(dev, &layoutInfo, null, out var descriptorSetLayout);
+        DescriptorSetLayout* setLayouts = stackalloc DescriptorSetLayout[] { descriptorSetLayout };
+        
         PipelineLayoutCreateInfo pipelineLayoutInfo = new()
         {
             SType = StructureType.PipelineLayoutCreateInfo,
-            SetLayoutCount = 0,
             PushConstantRangeCount = 2,
             PPushConstantRanges = constantRanges,
+            SetLayoutCount = 1,
+            PSetLayouts = setLayouts,
         };
 
         if (vk.CreatePipelineLayout(dev, in pipelineLayoutInfo, null, out _pipelineLayout) != Result.Success)
@@ -215,7 +242,67 @@ public unsafe class VkMaterial : IMaterial, IDisposable
 
         SilkMarshal.Free((nint)vertShaderStageInfo.PName);
         SilkMarshal.Free((nint)fragShaderStageInfo.PName);
+        
+        _textureCount = textureCount;
+        if (textureCount == 0) return; // Create texture descriptors
+        
+        var poolSize = new DescriptorPoolSize
+        {
+            Type = DescriptorType.CombinedImageSampler,
+            DescriptorCount = 1
+        };
+
+        var poolInfo = new DescriptorPoolCreateInfo
+        {
+            SType = StructureType.DescriptorPoolCreateInfo,
+            PoolSizeCount = 1,
+            PPoolSizes = &poolSize,
+            MaxSets = 1
+        };
+
+        vk.CreateDescriptorPool(dev, &poolInfo, null, out var descriptorPool);
+
+        var allocInfo = new DescriptorSetAllocateInfo
+        {
+            SType = StructureType.DescriptorSetAllocateInfo,
+            DescriptorPool = descriptorPool,
+            DescriptorSetCount = 1,
+            PSetLayouts = &descriptorSetLayout
+        };
+
+        vk.AllocateDescriptorSets(dev, &allocInfo, out var descriptorSet);
+        
+        _descriptorPool = descriptorPool;
+        _descriptorSet = descriptorSet;
     }
+
+    public void UseTexture(uint index, ITexture texture)
+    {
+        if (index >= _textureCount) throw new IndexOutOfRangeException();
+        var vkTexture = (VkTexture)texture;
+        
+        var descriptorImageInfo = new DescriptorImageInfo
+        {
+            ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
+            ImageView = vkTexture.ImageView,
+            Sampler = vkTexture.ImageSampler,
+        };
+
+        var write = new WriteDescriptorSet
+        {
+            SType = StructureType.WriteDescriptorSet,
+            DstSet = _descriptorSet,
+            DstBinding = index,
+            DescriptorCount = 1,
+            DescriptorType = DescriptorType.CombinedImageSampler,
+            PImageInfo = &descriptorImageInfo
+        };
+
+        Vulkan.Vk.UpdateDescriptorSets(
+            Vulkan.Device, 1, &write, 0, null);
+
+    }
+
     private static ShaderModule CreateShaderModule(byte[] code)
     {
         ShaderModuleCreateInfo createInfo = new()
@@ -235,7 +322,6 @@ public unsafe class VkMaterial : IMaterial, IDisposable
         return shaderModule;
 
     }
-
     private static int SizeOf(MaterialType type)
     {
         return type switch

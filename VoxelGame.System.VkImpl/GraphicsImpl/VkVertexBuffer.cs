@@ -29,7 +29,7 @@ internal unsafe class VkVertexBuffer<T> : IVertexBuffer<T>, IVkGenericVertexBuff
     {
         var vk = Vulkan.Vk;
         var dev = Vulkan.Device;
-        ulong bytesSize = (uint)(Unsafe.SizeOf<T>() * Math.Min(64, indices.Length));
+        ulong bytesSize = (uint)(Unsafe.SizeOf<T>() * Math.Max(64, indices.Length));
         
         // Create destiny buffer in memory
         var newBufferInfo = new BufferCreateInfo() {
@@ -83,6 +83,8 @@ internal unsafe class VkVertexBuffer<T> : IVertexBuffer<T>, IVkGenericVertexBuff
         Vulkan.EndSingleTimeCommands(cmd);
         
         vk.FreeMemory(dev, srcBufferMemory, null);
+        vk.DestroyBuffer(dev, srcBuffer, null);
+        
         vk.FreeMemory(dev, _mem, null);
         vk.DestroyBuffer(dev, _buf, null);
         
