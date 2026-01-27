@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Numerics;
 using Silk.NET.Core.Native;
 using Silk.NET.Vulkan;
 using VoxelGame.Core.Data.Graphics;
@@ -11,37 +12,38 @@ public unsafe class VkMaterial : IMaterial, IDisposable
     private Pipeline _graphicsPipeline;
     private PipelineLayout _pipelineLayout;
 
-    private readonly uint _textureCount;
     private DescriptorSet _descriptorSet;
     private DescriptorPool _descriptorPool;
+
+    private readonly MaterialType[] _vertexAttributes;
+    private readonly (uint off, MaterialType ty)[] _vertexUniforms;
+    private readonly (uint off, MaterialType ty)[] _fragmentUniforms;
+    private readonly uint _textureCount;
     
     public DescriptorSet? DescriptorSet => _descriptorSet.Handle == 0x0 ? null : _descriptorSet;
     
     public Pipeline GraphicsPipeline => _graphicsPipeline;
     public PipelineLayout PipelineLayout => _pipelineLayout;
     
-    internal VkMaterial(
-        string vertPath, string fragPath,
-        MaterialType[] attrType,
-        MaterialType[] vertexUniforms,
-        MaterialType[] fragmentUniforms,
-        uint textureCount)
+    internal VkMaterial(MaterialOptions options)
     {
         var vk = Vulkan.Vk;
         var dev = Vulkan.Device;
         
-        var vertShaderCode = File.ReadAllBytes(vertPath);
-        var fragShaderCode = File.ReadAllBytes(fragPath);
+        var vertShaderCode = File.ReadAllBytes(options.VertShaderPath);
+        var fragShaderCode = File.ReadAllBytes(options.FragShaderPath);
 
         var vertShaderModule = CreateShaderModule(vertShaderCode);
         var fragShaderModule = CreateShaderModule(fragShaderCode);
 
+        var entryPointName = (byte*)SilkMarshal.StringToPtr("main");
+        
         PipelineShaderStageCreateInfo vertShaderStageInfo = new()
         {
             SType = StructureType.PipelineShaderStageCreateInfo,
             Stage = ShaderStageFlags.VertexBit,
             Module = vertShaderModule,
-            PName = (byte*)SilkMarshal.StringToPtr("main")
+            PName = entryPointName,
         };
 
         PipelineShaderStageCreateInfo fragShaderStageInfo = new()
@@ -49,7 +51,7 @@ public unsafe class VkMaterial : IMaterial, IDisposable
             SType = StructureType.PipelineShaderStageCreateInfo,
             Stage = ShaderStageFlags.FragmentBit,
             Module = fragShaderModule,
-            PName = (byte*)SilkMarshal.StringToPtr("main")
+            PName = entryPointName,
         };
 
         var shaderStages = stackalloc[] { vertShaderStageInfo, fragShaderStageInfo };
@@ -57,11 +59,12 @@ public unsafe class VkMaterial : IMaterial, IDisposable
         List<VertexInputBindingDescription> bindings = [];
         List<VertexInputAttributeDescription> attributes = [];
 
-        for (uint i = 0; i < attrType.Length; i++)
+        _vertexAttributes = options.VertAttributes.ToArray();
+        for (uint i = 0; i < options.VertAttributes.Length; i++)
         {
-            if (attrType[i] == MaterialType.Void) continue;
+            if (_vertexAttributes[i] == MaterialType.Void) continue;
             
-            var format = attrType[i] switch
+            var format = _vertexAttributes[i] switch
             {
                 MaterialType.Vec2 => Format.R32G32Sfloat,
                 MaterialType.Vec3 => Format.R32G32B32Sfloat,
@@ -71,7 +74,7 @@ public unsafe class VkMaterial : IMaterial, IDisposable
                 MaterialType.UInt => Format.R32Uint,
                 _ => throw new UnreachableException()
             };
-            var stride = (uint)SizeOf(attrType[i]);
+            var stride = SizeOf(_vertexAttributes[i]);
             
             bindings.Add(new VertexInputBindingDescription { Binding = i, Stride = stride, InputRate = VertexInputRate.Vertex});
             attributes.Add(new VertexInputAttributeDescription { Binding = i, Location = i, Format = format, Offset = 0 });
@@ -115,9 +118,21 @@ public unsafe class VkMaterial : IMaterial, IDisposable
             SType = StructureType.PipelineRasterizationStateCreateInfo,
             DepthClampEnable = false,
             RasterizerDiscardEnable = false,
-            PolygonMode = PolygonMode.Fill,
             LineWidth = 1,
-            CullMode = CullModeFlags.BackBit,
+            PolygonMode = options.GeometryMode switch
+            {
+                MaterialOptions.GeometryModes.Points => PolygonMode.Point,
+                MaterialOptions.GeometryModes.Lines => PolygonMode.Line,
+                MaterialOptions.GeometryModes.Triangles => PolygonMode.Fill,
+                _ => throw new ArgumentOutOfRangeException()
+            },
+            CullMode = options.CullFaceMode switch
+            {
+                MaterialOptions.CullFaceModes.Front => CullModeFlags.FrontBit,
+                MaterialOptions.CullFaceModes.Back => CullModeFlags.BackBit,
+                MaterialOptions.CullFaceModes.Both => CullModeFlags.FrontAndBack,
+                _ => throw new ArgumentOutOfRangeException()
+            },
             FrontFace = FrontFace.CounterClockwise,
             DepthBiasEnable = false,
         };
@@ -131,15 +146,26 @@ public unsafe class VkMaterial : IMaterial, IDisposable
 
         PipelineColorBlendAttachmentState colorBlendAttachment = new()
         {
-            ColorWriteMask = ColorComponentFlags.RBit | ColorComponentFlags.GBit | ColorComponentFlags.BBit | ColorComponentFlags.ABit,
-            BlendEnable = false,
+            ColorWriteMask = ColorComponentFlags.RBit
+                             | ColorComponentFlags.GBit
+                             | ColorComponentFlags.BBit
+                             | ColorComponentFlags.ABit,
+            
+            BlendEnable = true,
+            
+            SrcColorBlendFactor = BlendFactor.SrcAlpha,
+            DstColorBlendFactor = BlendFactor.OneMinusSrcAlpha,
+            ColorBlendOp = BlendOp.Add,
+            
+            SrcAlphaBlendFactor = BlendFactor.One,
+            DstAlphaBlendFactor = BlendFactor.Zero,
+            AlphaBlendOp = BlendOp.Add,
         };
         
         PipelineColorBlendStateCreateInfo colorBlending = new()
         {
             SType = StructureType.PipelineColorBlendStateCreateInfo,
             LogicOpEnable = false,
-            LogicOp = LogicOp.Copy,
             AttachmentCount = 1,
             PAttachments = &colorBlendAttachment,
         };
@@ -159,23 +185,42 @@ public unsafe class VkMaterial : IMaterial, IDisposable
             StencilTestEnable = false
         };
 
-        var constantRanges = stackalloc[]
+        var constantRanges = new List<PushConstantRange>();
+
+        _vertexUniforms = new (uint off, MaterialType ty)[options.VertUniforms.Length];
+        _fragmentUniforms = new (uint off, MaterialType ty)[options.FragUniforms.Length];
+
+        uint baseOffset = 0;
+        uint currentOffset = 0;
+        
+        for (var i = 0; i < options.VertUniforms.Length; i++)
         {
-            new PushConstantRange { Offset = 0, Size = 0, StageFlags = ShaderStageFlags.VertexBit },
-            new PushConstantRange { Offset = 0, Size = 0, StageFlags = ShaderStageFlags.FragmentBit },
-        };
+            _vertexUniforms[i] = (currentOffset, options.VertUniforms[i]);
+            currentOffset += SizeOf(options.VertUniforms[i]);
+        }
+        if (currentOffset > 0) constantRanges.Add(new PushConstantRange
+            { Offset = baseOffset, Size = currentOffset, StageFlags = ShaderStageFlags.VertexBit });
+
+        baseOffset = currentOffset;
+        currentOffset = 0;
         
-        var fullSize = vertexUniforms.Aggregate<MaterialType, uint>(0, (current, i) => current + (uint)SizeOf(i));
-        constantRanges[0].Size = fullSize;
-        constantRanges[1].Offset = fullSize;
-        fullSize = fragmentUniforms.Aggregate<MaterialType, uint>(0, (current, i) => current + (uint)SizeOf(i));
-        constantRanges[1].Size = Math.Max(4, fullSize);
+        for (var i = 0; i < options.FragUniforms.Length; i++)
+        {
+            _fragmentUniforms[i] = (currentOffset, options.FragUniforms[i]);
+            currentOffset += SizeOf(options.FragUniforms[i]);
+        }
+        if (currentOffset > 0) constantRanges.Add(new PushConstantRange
+            { Offset = baseOffset, Size = currentOffset, StageFlags = ShaderStageFlags.FragmentBit });
+
+        var constantRangesStack = stackalloc PushConstantRange[constantRanges.Count];
+        constantRanges.CopyTo(new Span<PushConstantRange>(constantRangesStack, constantRanges.Count));
         
+        _textureCount = options.TextureCount;
         var samplerBinding = new DescriptorSetLayoutBinding
         {
             Binding = 0,
             DescriptorType = DescriptorType.CombinedImageSampler,
-            DescriptorCount = textureCount,
+            DescriptorCount = _textureCount,
             StageFlags = ShaderStageFlags.FragmentBit
         };
 
@@ -192,8 +237,8 @@ public unsafe class VkMaterial : IMaterial, IDisposable
         PipelineLayoutCreateInfo pipelineLayoutInfo = new()
         {
             SType = StructureType.PipelineLayoutCreateInfo,
-            PushConstantRangeCount = 2,
-            PPushConstantRanges = constantRanges,
+            PushConstantRangeCount = (uint)constantRanges.Count,
+            PPushConstantRanges = constantRangesStack,
             SetLayoutCount = 1,
             PSetLayouts = setLayouts,
         };
@@ -201,11 +246,7 @@ public unsafe class VkMaterial : IMaterial, IDisposable
         if (vk.CreatePipelineLayout(dev, in pipelineLayoutInfo, null, out _pipelineLayout) != Result.Success)
             throw new Exception("failed to create pipeline layout!");
         
-        var dynamicStates = stackalloc DynamicState[]
-        {
-            DynamicState.Viewport,
-            DynamicState.Scissor
-        };
+        var dynamicStates = stackalloc DynamicState[] { DynamicState.Viewport, DynamicState.Scissor };
 
         PipelineDynamicStateCreateInfo dyn = new()
         {
@@ -240,11 +281,9 @@ public unsafe class VkMaterial : IMaterial, IDisposable
         vk.DestroyShaderModule(dev, fragShaderModule, null);
         vk.DestroyShaderModule(dev, vertShaderModule, null);
 
-        SilkMarshal.Free((nint)vertShaderStageInfo.PName);
-        SilkMarshal.Free((nint)fragShaderStageInfo.PName);
+        SilkMarshal.Free((nint)entryPointName);
         
-        _textureCount = textureCount;
-        if (textureCount == 0) return; // Create texture descriptors
+        if (_textureCount == 0) return; // Create texture descriptors
         
         var poolSize = new DescriptorPoolSize
         {
@@ -276,6 +315,7 @@ public unsafe class VkMaterial : IMaterial, IDisposable
         _descriptorSet = descriptorSet;
     }
 
+    
     public void UseTexture(uint index, ITexture texture)
     {
         if (index >= _textureCount) throw new IndexOutOfRangeException();
@@ -292,7 +332,8 @@ public unsafe class VkMaterial : IMaterial, IDisposable
         {
             SType = StructureType.WriteDescriptorSet,
             DstSet = _descriptorSet,
-            DstBinding = index,
+            DstBinding = 0,
+            DstArrayElement = index,
             DescriptorCount = 1,
             DescriptorType = DescriptorType.CombinedImageSampler,
             PImageInfo = &descriptorImageInfo
@@ -300,9 +341,35 @@ public unsafe class VkMaterial : IMaterial, IDisposable
 
         Vulkan.Vk.UpdateDescriptorSets(
             Vulkan.Device, 1, &write, 0, null);
-
     }
-
+    public void BindVertexUniform(uint index, Matrix4x4 value)
+    {
+        if (index >= _vertexUniforms.Length) return; //throw new IndexOutOfRangeException();
+        if (_vertexUniforms[index].ty != MaterialType.Mat4) throw new InvalidOperationException();
+        
+        Vulkan.Vk.CmdPushConstants(
+            Vulkan.CurrentCommandBuffer,
+            _pipelineLayout,
+            ShaderStageFlags.VertexBit,
+            _vertexUniforms[index].off,
+            (uint)sizeof(Matrix4x4),
+            ref value);
+    }
+    public void BindVertexUniform(uint index, int value)
+    {
+        if (index >= _vertexUniforms.Length) throw new IndexOutOfRangeException();
+        if (_vertexUniforms[index].ty != MaterialType.Int) throw new InvalidOperationException();
+        
+        Vulkan.Vk.CmdPushConstants(
+            Vulkan.CurrentCommandBuffer,
+            _pipelineLayout,
+            ShaderStageFlags.VertexBit,
+            _vertexUniforms[index].off,
+            sizeof(int),
+            ref value);
+    }
+    
+    
     private static ShaderModule CreateShaderModule(byte[] code)
     {
         ShaderModuleCreateInfo createInfo = new()
@@ -322,7 +389,7 @@ public unsafe class VkMaterial : IMaterial, IDisposable
         return shaderModule;
 
     }
-    private static int SizeOf(MaterialType type)
+    private static uint SizeOf(MaterialType type)
     {
         return type switch
         {
@@ -346,6 +413,7 @@ public unsafe class VkMaterial : IMaterial, IDisposable
         var vk = Vulkan.Vk;
         var dev = Vulkan.Device;
         
+        vk.DestroyDescriptorPool(dev, _descriptorPool, null);
         vk.DestroyPipeline(dev, _graphicsPipeline, null);
         vk.DestroyPipelineLayout(dev, _pipelineLayout, null);
     }

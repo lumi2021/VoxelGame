@@ -30,7 +30,7 @@ public class VkWindow : IWindowCore
         
         Window.Update += Singletons.Game.Update;
         Window.Render += Singletons.Game.Draw;
-        Window.Resize += (v) => Singletons.Graphics.Resize(v.X, v.Y);
+        Window.Resize += (v) => ((VkGraphics)Singletons.Graphics).Resize(v.X, v.Y);
 
         Window.Initialize();
         ((VkInput)Singletons.Input).Initialize();

@@ -1,5 +1,3 @@
-
-
 error=0
 
 for f in *.vert *.frag; do

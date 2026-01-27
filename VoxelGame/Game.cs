@@ -2,8 +2,9 @@ using System.Numerics;
 using VoxelGame.Core;
 using VoxelGame.Core.Components;
 using VoxelGame.Core.Data.Graphics;
-using VoxelGame.Core.Data.Input;
+using VoxelGame.Core.gui;
 using VoxelGame.Core.World;
+using VoxelGame.Engine;
 
 namespace VoxelGame;
 
@@ -38,27 +39,27 @@ public class Game : IGame
     public void Init()
     {
         Console.WriteLine("Initializing rendering server...");
-        Singletons.Graphics.Init();
+        ((VkGraphics)Singletons.Graphics).Init();
 
         _chunk = new Chunk(64, 64, 64);
         _camera = new FreeCamera
         {
-            Position = new Vector3(0, 3, -3),
+            Position = new Vector3(32, 66, 32),
             Rotation = new Vector3(0, 0, 0),
         };
         _mesh = new Mesh
         {
-            Material = Singletons.Graphics.GenerateMaterial(
-                "shaders/chunk.vert.spv",
-                "shaders/chunk.frag.spv",
-                [MaterialType.Vec3, MaterialType.Vec2],
-                [MaterialType.Mat4, MaterialType.Mat4, MaterialType.Mat4],
-                [],
-                1
+            Material = Singletons.Graphics.GenerateMaterial(new MaterialOptions(
+                    "shaders/chunk.vert.spv",
+                    "shaders/chunk.frag.spv")
+                    {
+                        VertAttributes = [MaterialType.Vec3, MaterialType.Vec2],
+                        VertUniforms = [MaterialType.Mat4, MaterialType.Mat4, MaterialType.Mat4],
+                        TextureCount = 1
+                    }
             )
         };
         _texture = Singletons.Graphics.GenerateTexture("assets/textures/blocksatlas.png");
-        _mesh.Material.UseTexture(0, _texture);
         
         var mb = new MeshBuilder();
 
@@ -148,29 +149,35 @@ public class Game : IGame
         Console.WriteLine($"Committing mesh with {mb.TriangleCount} triangles");
         mb.Commit(_mesh);
 
-        Singletons.Input.CursorMode = CursorMode.Captured;
+        ImGui.Setup();
+//        Singletons.Input.CursorMode = CursorMode.Captured;
     }
 
     public void Deinit()
     {
-        Singletons.Graphics.CleanUp();
+        ((VkGraphics)Singletons.Graphics).CleanUp();
     }
     
     public void Update(double delta)
     {
         _time += delta;
-        _camera.Update(delta);
+        _camera.Rotation.Y = (float)(_time * 2);
+        // _camera.Update(delta);
     }
 
     public void Draw(double delta)
     {
-        Singletons.Graphics.BeginRenderingFrame();
+        ((VkGraphics)Singletons.Graphics).BeginRenderingFrame();
         
-        Singletons.Graphics.BindMat4(0, _camera.Projection * Matrix4x4.CreateScale(-1, -1, 1));
-        Singletons.Graphics.BindMat4(1, _camera.View);
+        _mesh.GetRenderContext()?
+            .WithVertexUniform(0, _camera.Projection * Matrix4x4.CreateScale(-1, -1, 1))
+            .WithVertexUniform(1, _camera.View)
+            .WithTexture(0, _texture)
+            .Draw();
         
-        _mesh.Draw();
+        ImGui.BeginFrame();
+        ImGui.EndFrame();
         
-        Singletons.Graphics.EndRenderingFrame();
+        ((VkGraphics)Singletons.Graphics).EndRenderingFrame();
     }
 }

@@ -22,16 +22,16 @@ public class Mesh
         VertexCoordBuffer = Singletons.Graphics.GenerateVertexBuffer<Vec2>();
     }
     
-    public void Draw()
+    public IRenderContext? GetRenderContext()
     {
-        if (Material == null!) return;
+        if (Material == null!) return null!;
         var modelMatrix = Mat4.CreateFromYawPitchRoll(Deg2Rad(Rotation.X), Deg2Rad(Rotation.Y), Deg2Rad(Rotation.Z))
             * Mat4.CreateTranslation(Position)
             * Mat4.CreateScale(Scale);
-        
-        Singletons.Graphics.BindMaterial(Material);
-        Singletons.Graphics.BindMesh(IndexBuffer, [VertexPositionBuffer, VertexCoordBuffer]);
-        Singletons.Graphics.BindMat4(2, modelMatrix);
-        Singletons.Graphics.Draw();
+
+        return Singletons.Graphics.Context
+            .WithMaterial(Material)
+            .WithMesh(IndexBuffer, [VertexPositionBuffer, VertexCoordBuffer])
+            .WithVertexUniform(2, modelMatrix);
     }
 }

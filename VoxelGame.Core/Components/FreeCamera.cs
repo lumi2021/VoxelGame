@@ -11,11 +11,11 @@ public class FreeCamera: ICamera, IUpdateProcess
     
     public float FieldOfView = 90; 
     public float NearPlane = 0.001f;
-    public float FarPlane = 100f;
+    public float FarPlane = 10000f;
     
     public Mat4 Projection =>  Mat4.CreatePerspectiveFieldOfView(
             Deg2Rad(FieldOfView),
-            800/600f,
+            Singletons.Graphics.ViewportSize.X / (float)Singletons.Graphics.ViewportSize.Y,
             NearPlane, FarPlane);
 
     public Mat4 View => Mat4.CreateLookTo(

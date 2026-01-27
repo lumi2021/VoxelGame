@@ -1,7 +1,7 @@
-using System.Numerics;
 using Silk.NET.Vulkan;
 using VoxelGame.Core;
 using VoxelGame.Core.Data.Graphics;
+using VoxelGame.Core.Math;
 using VoxelGame.Engine.GraphicsImpl;
 using Buffer = Silk.NET.Vulkan.Buffer;
 
@@ -10,29 +10,48 @@ namespace VoxelGame.Engine;
 public unsafe class VkGraphics : IGraphics
 {
     private IMaterial? _lastMaterial;
-    private PipelineLayout _lastPipelineLayout = default;
-    private uint _lastIndexCount = 0;
-    private uint _lastInstanceCount = 1;
+    private readonly VkRenderContext _renderContext;
+    
+    internal bool InFrame { get; private set; } = false;
+    public IRenderContext Context
+    {
+        get
+        {
+            _renderContext.Reset();
+            return _renderContext;
+        }
+    }
+
+    public Vec2U ViewportSize => new Vec2U(Vulkan.ViewportExtent.Width, Vulkan.ViewportExtent.Height);
+
+    public VkGraphics()
+    {
+        _renderContext = new VkRenderContext(this);
+    }
     
     public void Init() => Vulkan.Init();
-    public void Resize(int width, int height) => Vulkan.Resize(width, height);
+    public void Resize(int width, int height) => Vulkan.Resize();
     public void CleanUp() => Vulkan.CleanUp();
 
     public void BeginRenderingFrame()
     {
         Vulkan.BeginRenderingFrame();
+        InFrame = true;
         _lastMaterial = null;
     }
-    public void EndRenderingFrame() => Vulkan.EndRenderingFrame();
+    public void EndRenderingFrame()
+    {
+        InFrame = false;
+        Vulkan.EndRenderingFrame();
+    }
 
     public IIndexBuffer GenerateIndexBuffer() => new VkIndexBuffer();
     public IVertexBuffer<T> GenerateVertexBuffer<T>() where T : struct => new VkVertexBuffer<T>();
     public ITexture GenerateTexture(string filePath) => VkTexture.FromFile(filePath);
-    
-    public IMaterial GenerateMaterial(string vertPath, string fragPath, MaterialType[] a, MaterialType[] v, MaterialType[] f, uint t)
-        => new VkMaterial(vertPath, fragPath, a, v, f, t);
 
-    public void BindMaterial(IMaterial material)
+    public IMaterial GenerateMaterial(MaterialOptions options) => new VkMaterial(options);
+
+    internal void BindMaterial(IMaterial material)
     {
         if (_lastMaterial == material) return;
         
@@ -57,10 +76,9 @@ public unsafe class VkGraphics : IGraphics
         }
         
         _lastMaterial = material;
-        _lastPipelineLayout = mat.PipelineLayout;
     }
 
-    public void BindMesh(IIndexBuffer ibuf, IGenericVertexBuffer[] vbufs)
+    internal void BindMesh(IIndexBuffer ibuf, IGenericVertexBuffer[] vbufs)
     {
         var vk = Vulkan.Vk;
         var cmd = Vulkan.CurrentCommandBuffer;
@@ -77,21 +95,9 @@ public unsafe class VkGraphics : IGraphics
         
         vk.CmdBindVertexBuffers(cmd, 0, (uint)vbufs.Length, buffers, offsets);
         vk.CmdBindIndexBuffer(cmd, indexBuffer.Buffer, 0, IndexType.Uint32);
-
-        _lastIndexCount = (uint)indexBuffer.Size;
-    }
-
-    public void BindMat4(int index, Matrix4x4 matrix)
-    {
-        var offset = (uint)(sizeof(Matrix4x4) * index);
-        var length = (uint)sizeof(Matrix4x4);
-        Vulkan.Vk.CmdPushConstants(
-            Vulkan.CurrentCommandBuffer,
-            _lastPipelineLayout,
-            ShaderStageFlags.VertexBit,
-            offset, length, ref matrix);
     }
     
-    public void Draw() => Vulkan.Vk.CmdDrawIndexed(Vulkan.CurrentCommandBuffer,
-        _lastIndexCount, _lastInstanceCount, 0, 0, 0);
+
+    internal void DrawIndexed(uint indexCount, uint instanceCount)
+        => Vulkan.Vk.CmdDrawIndexed(Vulkan.CurrentCommandBuffer, indexCount, instanceCount, 0, 0, 0);
 }

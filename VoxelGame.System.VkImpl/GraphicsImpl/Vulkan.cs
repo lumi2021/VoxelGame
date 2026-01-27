@@ -47,8 +47,8 @@ internal static unsafe class Vulkan
     private static ImageView[]? _swapChainImageViews;
     private static Framebuffer[]? _swapChainFramebuffers;
 
+    internal static Extent2D ViewportExtent;
     private static uint _swapChainImageCount;
-    private static Extent2D _swapChainExtent;
     private static SurfaceFormatKHR _swapChainSurfaceFormat;
     private static PresentModeKHR _swapChainPresentMode;
     private static SwapChainSupportDetails _swapChainSupportDetails;
@@ -78,20 +78,34 @@ internal static unsafe class Vulkan
         CreateSurface();
         PickPhysicalDevice();
         CreateLogicalDevice();
+        
         CreateSwapChain();
+        CreateRenderPass();
+        
+        CreateImageViews();
+        CreateDepthResources();
+        CreateFramebuffers();
+        
         CreateCommandPool();
         CreateCommandBuffers();
         CreateSyncObjects();
     }
 
-    internal static void Resize(int width, int height)
+    internal static void Resize()
     {
-        throw new NotImplementedException();
+        //throw new NotImplementedException();
+        _swapChainSupportDetails = QuerySwapChainSupport(_physicalDevice);
+        ViewportExtent = ChooseSwapExtent(_swapChainSupportDetails.Capabilities);
         
         WaitDeviceIdle();
         CleanupSwapChain();
         ResetSwapChain();
-        Console.WriteLine("Swap chain rebuilt");
+        
+        _imagesInFlight = new Fence[_swapChainImages!.Length];
+        
+        CreateImageViews();
+        CreateDepthResources();
+        CreateFramebuffers();
     }
     internal static void CleanUp()
     {
@@ -131,12 +145,7 @@ internal static unsafe class Vulkan
         _imageIndex = 0;
         var res = _khrSwapChain!.AcquireNextImage(Device, _swapChain, ulong.MaxValue,
             _imageAvailableSemaphores![_currentFrame], default, ref _imageIndex);
-        if (res == Result.ErrorOutOfDateKhr)
-        {
-            Console.WriteLine("Resizing and trying again...");
-            Resize(0, 0);
-            goto TryAgain;
-        }
+        if (res is Result.ErrorOutOfDateKhr or Result.SuboptimalKhr) { Resize(); goto TryAgain; }
         
         if (_imagesInFlight![_imageIndex].Handle != 0)
             Vk.WaitForFences(Device, 1, in _imagesInFlight[_imageIndex], true, ulong.MaxValue);
@@ -160,15 +169,15 @@ internal static unsafe class Vulkan
             Framebuffer = CurrentFramebuffer,
             RenderArea = {
                 Offset = { X = 0, Y = 0 },
-                Extent = _swapChainExtent,
+                Extent = ViewportExtent,
             },
             ClearValueCount = 2,
             PClearValues = clearValue,
         };
         Vk.CmdBeginRenderPass(CurrentCommandBuffer, &renderPassInfo, SubpassContents.Inline);
 
-        var vp = new Viewport(0f, 0f, _swapChainExtent.Width, _swapChainExtent.Height, 0f, 1f);
-        var sc = new Rect2D(new Offset2D(0, 0), _swapChainExtent);
+        var vp = new Viewport(0f, 0f, ViewportExtent.Width, ViewportExtent.Height, 0f, 1f);
+        var sc = new Rect2D(new Offset2D(0, 0), ViewportExtent);
 
         Vk.CmdSetViewport(CurrentCommandBuffer, 0, 1, &vp);
         Vk.CmdSetScissor(CurrentCommandBuffer, 0, 1, &sc);
@@ -182,7 +191,7 @@ internal static unsafe class Vulkan
         var waitStages = stackalloc[] { PipelineStageFlags.ColorAttachmentOutputBit };
         var commandBuffer = stackalloc[] { _commandBuffers![_currentFrame] };
         var waitSemaphores = stackalloc[] { _imageAvailableSemaphores![_currentFrame] };
-        var signalSemaphores = stackalloc[] { _renderFinishedSemaphores![_imageIndex] };
+        var signalSemaphores = stackalloc[] { _renderFinishedSemaphores![_currentFrame] };
         
         var submitInfo = new SubmitInfo
         {
@@ -198,8 +207,9 @@ internal static unsafe class Vulkan
             PSignalSemaphores = signalSemaphores,
         };
 
-        if (Vk.QueueSubmit(_graphicsQueue, 1, in submitInfo, _inFlightFences![_currentFrame]) != Result.Success)
-            throw new Exception("failed to submit draw command buffer!");
+        var result = Vk.QueueSubmit(_graphicsQueue, 1, in submitInfo, _inFlightFences![_currentFrame]);
+        if (result is Result.ErrorOutOfDateKhr or Result.SuboptimalKhr) { Resize(); return; }
+        else if (result != Result.Success) throw new Exception("failed to submit draw command buffer! " + result);
 
         var swapChains = stackalloc[] { _swapChain };
         var imageIdx = stackalloc[] { _imageIndex };
@@ -431,7 +441,7 @@ internal static unsafe class Vulkan
         _swapChainSupportDetails = QuerySwapChainSupport(_physicalDevice);
         _swapChainSurfaceFormat = ChooseSwapSurfaceFormat(_swapChainSupportDetails.Formats);
         _swapChainPresentMode = ChoosePresentMode(_swapChainSupportDetails.PresentModes);
-        _swapChainExtent = ChooseSwapExtent(_swapChainSupportDetails.Capabilities);
+        ViewportExtent = ChooseSwapExtent(_swapChainSupportDetails.Capabilities);
         
         _swapChainImageCount = _swapChainSupportDetails.Capabilities.MinImageCount + 1;
         if (_swapChainSupportDetails.Capabilities.MaxImageCount > 0 && _swapChainImageCount > _swapChainSupportDetails.Capabilities.MaxImageCount)
@@ -447,23 +457,23 @@ internal static unsafe class Vulkan
         Vk.DestroyImage(Device, _depthImage, null);
         Vk.FreeMemory(Device, _depthImageMemory, null);
 
-        // 2. Destroy framebuffers
+        // Destroy framebuffers
         foreach (var framebuffer in _swapChainFramebuffers!)
             Vk.DestroyFramebuffer(Device, framebuffer, null);
         _swapChainFramebuffers = null;
         
-        // 3. Destroy image views
+        // Destroy image views
         foreach (var imageView in _swapChainImageViews!)
             Vk.DestroyImageView(Device, imageView, null);
         _swapChainImageViews = null;
         
-        // 4. Destroy render pass
-        Vk.DestroyRenderPass(Device, DefaultRenderPass, null);
+        // Destroy render pass
+        //Vk.DestroyRenderPass(Device, DefaultRenderPass, null);
         
-        // 5. Reset frames
+        // Reset frames
         _currentFrame = 0;
-        for (var i = 0; i < _imagesInFlight!.Length; i++) Vk.ResetFences(Device, 1, in _imagesInFlight![i]);
-        for (var i = 0; i < _inFlightFences!.Length; i++) Vk.ResetFences(Device, 1, in _inFlightFences![i]);
+        //for (var i = 0; i < _imagesInFlight!.Length; i++) Vk.ResetFences(Device, 1, in _imagesInFlight![i]);
+        //for (var i = 0; i < _inFlightFences!.Length; i++) Vk.ResetFences(Device, 1, in _inFlightFences![i]);
     }
     
     private static void ResetSwapChain()
@@ -478,7 +488,7 @@ internal static unsafe class Vulkan
             MinImageCount = _swapChainImageCount,
             ImageFormat = _swapChainSurfaceFormat.Format,
             ImageColorSpace = _swapChainSurfaceFormat.ColorSpace,
-            ImageExtent = _swapChainExtent,
+            ImageExtent = ViewportExtent,
             ImageArrayLayers = 1,
             ImageUsage = ImageUsageFlags.ColorAttachmentBit,
             PresentMode = PresentModeKHR.FifoKhr,
@@ -519,11 +529,6 @@ internal static unsafe class Vulkan
         _swapChainImages = new Image[_swapChainImageCount];
         fixed (Image* swapChainImagesPtr = _swapChainImages)
             _khrSwapChain.GetSwapchainImages(Device, _swapChain, ref _swapChainImageCount, swapChainImagesPtr);
-        
-        CreateImageViews();
-        CreateRenderPass();
-        CreateDepthResources();
-        CreateFramebuffers();
     }
     
     private static void CreateImageViews()
@@ -637,8 +642,8 @@ internal static unsafe class Vulkan
     {
         const Format depthFormat = Format.D32Sfloat;
         CreateImage(
-            _swapChainExtent.Width, 
-            _swapChainExtent.Height, 
+            ViewportExtent.Width, 
+            ViewportExtent.Height, 
             depthFormat,
             ImageTiling.Optimal,
             ImageUsageFlags.DepthStencilAttachmentBit,
@@ -663,8 +668,8 @@ internal static unsafe class Vulkan
                 RenderPass = DefaultRenderPass,
                 AttachmentCount = 2,
                 PAttachments = attachment,
-                Width = _swapChainExtent.Width,
-                Height = _swapChainExtent.Height,
+                Width = ViewportExtent.Width,
+                Height = ViewportExtent.Height,
                 Layers = 1,
             };
 
@@ -750,7 +755,7 @@ internal static unsafe class Vulkan
 
     private static void CreateCommandBuffers()
     {
-        _commandBuffers = new CommandBuffer[_swapChainFramebuffers!.Length];
+        _commandBuffers = new CommandBuffer[MaxFramesInFlight];
 
         CommandBufferAllocateInfo allocInfo = new()
         {
@@ -770,7 +775,7 @@ internal static unsafe class Vulkan
     private static void CreateSyncObjects()
     {
         _imageAvailableSemaphores = new Semaphore[MaxFramesInFlight];
-        _renderFinishedSemaphores = new Semaphore[_swapChainImages!.Length];
+        _renderFinishedSemaphores = new Semaphore[MaxFramesInFlight];
         _inFlightFences = new Fence[MaxFramesInFlight];
         _imagesInFlight = new Fence[_swapChainImages!.Length];
 
@@ -794,7 +799,7 @@ internal static unsafe class Vulkan
             }
         }
         
-        for (var i = 0; i < _swapChainImages.Length; i++)
+        for (var i = 0; i < MaxFramesInFlight; i++)
         {
             var res = Vk.CreateSemaphore(Device, in semaphoreInfo, null, out _renderFinishedSemaphores[i]);
             if (res != Result.Success ) throw new Exception("failed to create synchronization objects for a frame!");
@@ -992,7 +997,7 @@ internal static unsafe class Vulkan
         return Vk.False;
     }
     
-    static bool RunningUnderRenderDoc()
+    private static bool RunningUnderRenderDoc()
     {
         return Environment.GetEnvironmentVariable("RENDERDOC_CAPOPTS") != null
                || Environment.GetEnvironmentVariable("RENDERDOC_CAPFILE") != null;
